@@ -152,6 +152,40 @@
     }
     #xhair::before{width:2px;height:100%;left:50%;top:0;transform:translateX(-50%);}
     #xhair::after{width:100%;height:2px;top:50%;left:0;transform:translateY(-50%);}
+
+    /* ── Mobile controls ──────────────────────────── */
+    #joystick-zone{
+      display:none;position:fixed;
+      bottom:90px;left:20px;
+      width:110px;height:110px;border-radius:50%;
+      background:rgba(255,255,255,.08);
+      border:2px solid rgba(255,255,255,.25);
+      touch-action:none;z-index:150;
+    }
+    #joystick-knob{
+      position:absolute;width:44px;height:44px;
+      border-radius:50%;background:rgba(255,255,255,.4);
+      left:33px;top:33px;pointer-events:none;
+    }
+    .mob-btn{
+      display:none;position:fixed;
+      width:68px;height:68px;border-radius:50%;border:2px solid rgba(255,255,255,.25);
+      font-size:1.7rem;cursor:pointer;z-index:150;
+      background:rgba(0,0,0,.6);color:#fff;
+      touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+      align-items:center;justify-content:center;
+    }
+    @media(pointer:coarse){
+      #joystick-zone{display:block;}
+      .mob-btn{display:flex;}
+      #lock-hint{display:none!important;}
+      .hslot{width:40px;height:40px;font-size:1.1rem;}
+      .hslot .slot-label{display:none;}
+      #hotbar{bottom:10px;gap:3px;padding:4px;}
+    }
+    #mob-attack{bottom:90px;right:20px;}
+    #mob-action{bottom:168px;right:20px;}
+    #mob-jump{bottom:168px;right:96px;}
   </style>
 </head>
 <body>
@@ -207,6 +241,12 @@
 <div id="xhair"></div>
 <div id="msglog"></div>
 <div id="lock-hint" style="display:none">Click to lock mouse</div>
+
+<!-- Mobile controls -->
+<div id="joystick-zone"><div id="joystick-knob"></div></div>
+<button class="mob-btn" id="mob-attack">⚔️</button>
+<button class="mob-btn" id="mob-action">🛡️</button>
+<button class="mob-btn" id="mob-jump">⬆️</button>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
 <script>
@@ -648,7 +688,7 @@ document.addEventListener('mousemove',e=>{
 });
 
 renderer.domElement.addEventListener('click',()=>{
-  if(!gameRunning) return;
+  if(!gameRunning||isTouch) return;
   if(!locked){ renderer.domElement.requestPointerLock(); return; }
   leftClick();
 });
@@ -864,6 +904,10 @@ function updatePlayer(dt){
   if(keys['KeyA']) move.sub(right);
   if(keys['KeyD']) move.add(right);
   if(move.lengthSq()>0){ move.normalize().multiplyScalar(SPEED*dt); }
+  if(mobileDir.x!==0||mobileDir.y!==0){
+    move.add(forward.clone().multiplyScalar(mobileDir.y*SPEED*dt));
+    move.add(right.clone().multiplyScalar(mobileDir.x*SPEED*dt));
+  }
   playerGroup.position.add(move);
 
   // Clamp to world
@@ -970,13 +1014,17 @@ function startGame(){
   document.getElementById('overlay').style.display='none';
   document.getElementById('end-screen').style.display='none';
   gameRunning=true;
-  renderer.domElement.requestPointerLock();
+  if(!isTouch) renderer.domElement.requestPointerLock();
 }
 
 document.getElementById('start-btn').addEventListener('click',startGame);
 document.getElementById('restart-btn').addEventListener('click',startGame);
 
-// ── Render loop ────────────────────────────────────────────
+// ── Mobile / Touch support ─────────────────────────────────────────
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const mobileDir = { x:0, y:0 };
+
+// ── Render loop ──────────────────────────────────────────
 const clock=new THREE.Clock();
 (function animate(){
   requestAnimationFrame(animate);
@@ -987,6 +1035,88 @@ const clock=new THREE.Clock();
   }
   renderer.render(scene,camera);
 })();
+
+if(isTouch){
+  const jZone=document.getElementById('joystick-zone');
+  const jKnob=document.getElementById('joystick-knob');
+  const JR=50;
+  let jTouchId=null, jCenter=null;
+
+  jZone.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    const t=e.changedTouches[0];
+    jTouchId=t.identifier;
+    const r=jZone.getBoundingClientRect();
+    jCenter={x:r.left+r.width/2,y:r.top+r.height/2};
+  },{passive:false});
+
+  jZone.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(t.identifier!==jTouchId) continue;
+      let dx=t.clientX-jCenter.x, dy=t.clientY-jCenter.y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist>JR){dx=dx/dist*JR;dy=dy/dist*JR;}
+      jKnob.style.transform=`translate(${dx}px,${dy}px)`;
+      mobileDir.x=dx/JR;
+      mobileDir.y=-dy/JR;
+    }
+  },{passive:false});
+
+  const resetJoy=e=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===jTouchId){
+        jTouchId=null;
+        jKnob.style.transform='';
+        mobileDir.x=0; mobileDir.y=0;
+      }
+    }
+  };
+  jZone.addEventListener('touchend',resetJoy);
+  jZone.addEventListener('touchcancel',resetJoy);
+
+  // Camera look drag (right portion of screen)
+  let lookTouchId=null, lookLast=null;
+  renderer.domElement.addEventListener('touchstart',e=>{
+    if(!gameRunning) return;
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(lookTouchId===null && t.clientX>window.innerWidth*0.38){
+        lookTouchId=t.identifier;
+        lookLast={x:t.clientX,y:t.clientY};
+      }
+    }
+  },{passive:false});
+
+  renderer.domElement.addEventListener('touchmove',e=>{
+    if(!gameRunning) return;
+    e.preventDefault();
+    for(const t of e.changedTouches){
+      if(t.identifier===lookTouchId && lookLast){
+        camYaw  -=(t.clientX-lookLast.x)*0.004;
+        camPitch =clamp(camPitch+(t.clientY-lookLast.y)*0.004,-0.1,1.2);
+        lookLast={x:t.clientX,y:t.clientY};
+      }
+    }
+  },{passive:false});
+
+  renderer.domElement.addEventListener('touchend',e=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===lookTouchId){lookTouchId=null;lookLast=null;}
+    }
+  });
+
+  document.getElementById('mob-attack').addEventListener('touchstart',e=>{
+    e.preventDefault(); leftClick();
+  },{passive:false});
+  document.getElementById('mob-action').addEventListener('touchstart',e=>{
+    e.preventDefault(); rightClick();
+  },{passive:false});
+  document.getElementById('mob-jump').addEventListener('touchstart',e=>{
+    e.preventDefault();
+    if(onGround){velY=JUMP_V;onGround=false;}
+  },{passive:false});
+}
 </script>
 </body>
 </html>

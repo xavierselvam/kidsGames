@@ -109,6 +109,26 @@
       position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
       color:rgba(255,255,255,0.5); font-size:0.85rem; pointer-events:none;
     }
+
+    /* ── Mobile fire button ──────────────────────────── */
+    #fire-btn {
+      display:none;
+      position:fixed; bottom:30px; right:24px;
+      width:80px; height:80px; border-radius:50%;
+      background:rgba(220,50,50,.85);
+      border:3px solid rgba(255,255,255,.35);
+      font-size:2rem; color:#fff; cursor:pointer;
+      z-index:50; touch-action:manipulation;
+      -webkit-tap-highlight-color:transparent;
+      align-items:center; justify-content:center;
+    }
+    button { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+    @media (pointer:coarse) {
+      #fire-btn  { display:flex; }
+      #lock-msg  { display:none; }
+      #ammo-bar  { bottom:125px; }
+      #crosshair { display:none; }
+    }
   </style>
 </head>
 <body>
@@ -142,6 +162,7 @@
   <a href="index.html" style="color:#666;font-size:0.85rem;text-decoration:none;margin-top:4px">← Back to Game Hub</a>
 </div>
 
+<button id="fire-btn" aria-label="Shoot">🔫</button>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
 <script>
 // ══════════════════════════════════════════════════════════════════
@@ -549,7 +570,7 @@ document.addEventListener('mousemove', (e) => {
 });
 
 renderer.domElement.addEventListener('click', () => {
-  if (!gameActive) return;
+  if (!gameActive || isTouch) return;
   if (document.pointerLockElement !== renderer.domElement) {
     renderer.domElement.requestPointerLock();
   } else {
@@ -558,6 +579,7 @@ renderer.domElement.addEventListener('click', () => {
 });
 
 document.addEventListener('pointerlockchange', () => {
+  if (isTouch) return;
   paused = (document.pointerLockElement !== renderer.domElement);
 });
 
@@ -583,10 +605,57 @@ function startGame() {
   paused     = false;
   spawnLevel();
 
-  renderer.domElement.requestPointerLock();
+  if (!isTouch) renderer.domElement.requestPointerLock();
 }
 
 startBtn.addEventListener('click', startGame);
+
+// ── Mobile / Touch support ─────────────────────────────────────────
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+if (isTouch) {
+  document.getElementById('ammo-bar').textContent = '🔫 Tap 🔫 to shoot';
+
+  let lookTouchId = null, lookLast = null;
+
+  renderer.domElement.addEventListener('touchstart', e => {
+    if (!gameActive) return;
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    if (lookTouchId === null) {
+      lookTouchId = t.identifier;
+      lookLast = { x: t.clientX, y: t.clientY };
+    }
+  }, { passive: false });
+
+  renderer.domElement.addEventListener('touchmove', e => {
+    if (!gameActive) return;
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId && lookLast) {
+        const dx = t.clientX - lookLast.x;
+        const dy = t.clientY - lookLast.y;
+        lookLast = { x: t.clientX, y: t.clientY };
+        yaw   -= dx * 0.005;
+        pitch -= dy * 0.005;
+        pitch  = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+        yawObj.rotation.y   = yaw;
+        pitchObj.rotation.x = pitch;
+      }
+    }
+  }, { passive: false });
+
+  renderer.domElement.addEventListener('touchend', e => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId) { lookTouchId = null; lookLast = null; }
+    }
+  });
+
+  document.getElementById('fire-btn').addEventListener('touchstart', e => {
+    e.preventDefault();
+    shoot();
+  }, { passive: false });
+}
 
 // ── Resize ─────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {

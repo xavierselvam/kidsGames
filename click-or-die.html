@@ -20,7 +20,7 @@
     }
 
     h1 {
-      font-size: 2rem;
+      font-size: clamp(1.3rem, 5vw, 2rem);
       margin-bottom: 10px;
       color: #f5c842;
       letter-spacing: 2px;
@@ -28,9 +28,11 @@
 
     #hud {
       display: flex;
-      gap: 30px;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px 20px;
       margin-bottom: 20px;
-      font-size: 1.1rem;
+      font-size: clamp(0.85rem, 3vw, 1.1rem);
     }
 
     #hud span {
@@ -42,21 +44,24 @@
 
     #game-area {
       position: relative;
-      width: 600px;
-      height: 400px;
+      width: min(600px, calc(100vw - 16px));
+      aspect-ratio: 3 / 2;
       background: #16213e;
       border: 2px solid #f5c842;
       border-radius: 16px;
       overflow: hidden;
+      touch-action: manipulation;
     }
 
     #cookie {
       position: absolute;
-      font-size: 60px;
+      font-size: clamp(40px, 10vw, 60px);
       cursor: pointer;
       user-select: none;
       transition: transform 0.08s;
       filter: drop-shadow(0 0 10px #f5c842);
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
 
     #cookie:active { transform: scale(0.85); }
@@ -112,6 +117,8 @@
       cursor: pointer;
       font-weight: bold;
       transition: transform 0.1s;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
     button:active { transform: scale(0.95); }
 
@@ -125,7 +132,7 @@
     #pause-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     #danger-bar-wrap {
-      width: 600px;
+      width: min(600px, calc(100vw - 16px));
       height: 14px;
       background: #16213e;
       border: 1px solid #444;
@@ -218,7 +225,7 @@
   const snakeCont    = document.getElementById('snake-container');
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const AREA_W = 600, AREA_H = 400;
+  // Area dimensions are read dynamically from the element (supports responsive sizing)
   const GRACE_MS        = 2000;   // ms before snake starts moving after idle
   const DANGER_MAX_MS   = 4000;   // full danger bar = snake reaches you
   const PAUSE_DURATION  = 5000;   // pause break duration ms
@@ -241,9 +248,11 @@
   function rand(min, max) { return Math.random() * (max - min) + min; }
 
   function moveCookie() {
-    const pad = 40;
-    const x = rand(pad, AREA_W - 80);
-    const y = rand(pad, AREA_H - 80);
+    const w = gameArea.clientWidth, h = gameArea.clientHeight;
+    const pad = Math.min(40, w * 0.08);
+    const cookieSize = cookie.offsetWidth || 60;
+    const x = rand(pad, w - cookieSize - pad);
+    const y = rand(pad, h - cookieSize - pad);
     cookie.style.left = x + 'px';
     cookie.style.top  = y + 'px';
   }
@@ -257,7 +266,7 @@
       s.textContent = p;
       snakeCont.appendChild(s);
     });
-    sx = -120; sy = AREA_H / 2;
+    sx = -120; sy = gameArea.clientHeight / 2;
     snakeCont.style.left = sx + 'px';
     snakeCont.style.top  = sy + 'px';
     snakeCont.style.display = 'none';
@@ -310,7 +319,7 @@
     dangerBar.style.width = '0%';
     warningEl.style.display = 'none';
     snakeCont.style.display = 'none';
-    sx = -120; sy = AREA_H / 2;
+    sx = -120; sy = gameArea.clientHeight / 2;
     snakeCont.style.left = sx + 'px';
     snakeCont.style.top  = sy + 'px';
   }

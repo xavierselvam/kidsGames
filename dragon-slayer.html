@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dragon Slayer</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:#000;overflow:hidden;font-family:'Segoe UI',sans-serif;user-select:none;}
+    canvas{display:block;}
+
+    /* ── Overlay ─────────────────────────────── */
+    #overlay{
+      position:fixed;inset:0;
+      background:rgba(0,0,0,0.92);
+      display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      gap:16px;z-index:200;
+    }
+    #overlay h1{font-size:3rem;color:#c0392b;text-shadow:0 0 30px #c0392b;letter-spacing:4px;}
+    #overlay p{color:#bbb;font-size:1rem;text-align:center;max-width:500px;line-height:1.7;}
+    #overlay .controls-grid{
+      display:grid;grid-template-columns:auto auto;
+      gap:6px 20px;color:#aaa;font-size:0.9rem;
+      background:rgba(255,255,255,0.06);
+      padding:14px 24px;border-radius:14px;
+    }
+    #overlay .controls-grid b{color:#f5c842;}
+    .btn{
+      padding:14px 36px;border:none;border-radius:30px;
+      font-size:1.05rem;font-weight:bold;cursor:pointer;
+      transition:filter .15s,transform .1s;letter-spacing:.5px;
+    }
+    .btn:hover{filter:brightness(1.15);}
+    .btn:active{transform:scale(.96);}
+    .btn-play{background:#c0392b;color:#fff;}
+    .btn-home{background:#222;color:#888;font-size:.85rem;padding:8px 20px;}
+
+    /* ── HUD top ─────────────────────────────── */
+    #hud-top{
+      position:fixed;top:0;left:0;right:0;
+      display:flex;justify-content:space-between;align-items:flex-start;
+      padding:14px 20px;pointer-events:none;
+    }
+    .bar-wrap{display:flex;flex-direction:column;gap:4px;}
+    .bar-label{font-size:.72rem;color:#ccc;letter-spacing:1px;text-transform:uppercase;}
+    .bar-outer{
+      width:200px;height:16px;
+      background:rgba(0,0,0,0.5);
+      border:1px solid rgba(255,255,255,0.2);
+      border-radius:8px;overflow:hidden;
+    }
+    #player-hp-bar{height:100%;width:100%;background:#27ae60;border-radius:8px;transition:width .2s;}
+    #dragon-hp-bar{height:100%;width:100%;background:#c0392b;border-radius:8px;transition:width .2s;}
+
+    /* armour icons top-right */
+    #armour-status{
+      display:flex;gap:6px;align-items:center;
+      background:rgba(0,0,0,0.5);padding:6px 12px;border-radius:12px;
+      border:1px solid rgba(255,255,255,0.1);
+    }
+    .armour-slot-icon{
+      width:28px;height:28px;border-radius:6px;
+      background:rgba(255,255,255,0.08);border:1px solid #444;
+      display:flex;align-items:center;justify-content:center;
+      font-size:1rem;
+    }
+    .armour-slot-icon.equipped{background:rgba(30,144,255,0.25);border-color:#1e90ff;}
+
+    /* ── Hotbar ──────────────────────────────── */
+    #hotbar{
+      position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+      display:flex;gap:5px;
+      background:rgba(0,0,0,0.6);
+      padding:6px;border-radius:16px;
+      border:1px solid rgba(255,255,255,0.15);
+      pointer-events:all;
+    }
+    .hslot{
+      width:58px;height:58px;
+      background:rgba(255,255,255,0.07);
+      border:2px solid #555;border-radius:10px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      cursor:pointer;position:relative;transition:border-color .15s,background .15s;
+      font-size:1.5rem;
+    }
+    .hslot:hover{background:rgba(255,255,255,0.13);}
+    .hslot.active{border-color:#f5c842;background:rgba(245,200,66,0.15);}
+    .hslot .slot-num{
+      position:absolute;top:2px;left:5px;
+      font-size:.6rem;color:#888;
+    }
+    .hslot .stack-count{
+      position:absolute;bottom:2px;right:5px;
+      font-size:.6rem;color:#fff;font-weight:bold;
+    }
+    .hslot .slot-label{font-size:.48rem;color:#aaa;margin-top:1px;text-align:center;line-height:1.2;}
+
+    /* ── Action hints ─────────────────────────── */
+    #action-hint{
+      position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+      color:rgba(255,255,255,.6);font-size:.8rem;pointer-events:none;
+      background:rgba(0,0,0,.45);padding:4px 14px;border-radius:10px;
+    }
+
+    /* ── Hit flash ──────────────────────────── */
+    #hit-flash{
+      position:fixed;inset:0;background:rgba(200,0,0,.3);
+      pointer-events:none;opacity:0;transition:opacity .05s;
+    }
+    #heal-flash{
+      position:fixed;inset:0;background:rgba(0,200,60,.2);
+      pointer-events:none;opacity:0;transition:opacity .05s;
+    }
+
+    /* ── Win / Lose ─────────────────────────── */
+    #end-screen{
+      position:fixed;inset:0;
+      background:rgba(0,0,0,.88);
+      display:none;flex-direction:column;
+      align-items:center;justify-content:center;
+      gap:18px;z-index:300;
+    }
+    #end-screen h1{font-size:3rem;letter-spacing:3px;}
+    #end-screen p{color:#bbb;font-size:1.1rem;}
+
+    /* ── Message log ────────────────────────── */
+    #msglog{
+      position:fixed;left:20px;bottom:90px;
+      display:flex;flex-direction:column;gap:4px;
+      pointer-events:none;
+    }
+    .msg{
+      color:#fff;font-size:.82rem;
+      background:rgba(0,0,0,.5);padding:3px 10px;border-radius:8px;
+      animation:fadeMsg 3s forwards;
+    }
+    @keyframes fadeMsg{0%,70%{opacity:1}100%{opacity:0}}
+
+    #lock-hint{
+      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+      color:rgba(255,255,255,.5);font-size:.9rem;pointer-events:none;
+    }
+
+    /* crosshair */
+    #xhair{
+      position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+      width:22px;height:22px;pointer-events:none;
+    }
+    #xhair::before,#xhair::after{
+      content:'';position:absolute;background:rgba(255,255,255,.8);border-radius:1px;
+    }
+    #xhair::before{width:2px;height:100%;left:50%;top:0;transform:translateX(-50%);}
+    #xhair::after{width:100%;height:2px;top:50%;left:0;transform:translateY(-50%);}
+  </style>
+</head>
+<body>
+
+<!-- Overlays -->
+<div id="overlay">
+  <h1>🐉 DRAGON SLAYER</h1>
+  <p>Equip your diamond gear, master your weapons, and slay the dragon!<br>
+     Right-click armour slots to equip. Number keys 1–0 to switch slots.</p>
+  <div class="controls-grid">
+    <span><b>WASD</b></span><span>Move</span>
+    <span><b>Mouse</b></span><span>Look around</span>
+    <span><b>Left Click</b></span><span>Attack / Mine</span>
+    <span><b>Right Click</b></span><span>Equip Armour / Place Block</span>
+    <span><b>1–0 Keys</b></span><span>Select hotbar slot</span>
+    <span><b>Space</b></span><span>Jump</span>
+    <span><b>ESC</b></span><span>Pause</span>
+  </div>
+  <button class="btn btn-play" id="start-btn">▶ Begin Adventure</button>
+  <a href="index.html" style="color:#555;font-size:.82rem;text-decoration:none">← Game Hub</a>
+</div>
+
+<div id="end-screen">
+  <h1 id="end-title"></h1>
+  <p id="end-msg"></p>
+  <button class="btn btn-play" id="restart-btn">Play Again</button>
+  <a href="index.html" style="color:#555;font-size:.82rem;text-decoration:none">← Game Hub</a>
+</div>
+
+<!-- HUD -->
+<div id="hud-top">
+  <div class="bar-wrap">
+    <div class="bar-label">❤️ Player HP</div>
+    <div class="bar-outer"><div id="player-hp-bar"></div></div>
+  </div>
+  <div id="armour-status">
+    <div class="armour-slot-icon" id="ai-helmet"  title="Helmet">🪖</div>
+    <div class="armour-slot-icon" id="ai-chest"   title="Chestplate">🛡️</div>
+    <div class="armour-slot-icon" id="ai-legs"    title="Leggings">👖</div>
+    <div class="armour-slot-icon" id="ai-boots"   title="Boots">👢</div>
+  </div>
+  <div class="bar-wrap" style="align-items:flex-end">
+    <div class="bar-label">🐉 Dragon HP</div>
+    <div class="bar-outer"><div id="dragon-hp-bar"></div></div>
+  </div>
+</div>
+
+<!-- Hotbar -->
+<div id="hotbar"></div>
+<div id="action-hint"></div>
+<div id="hit-flash"></div>
+<div id="heal-flash"></div>
+<div id="xhair"></div>
+<div id="msglog"></div>
+<div id="lock-hint" style="display:none">Click to lock mouse</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════
+//  DRAGON SLAYER — 3rd-person WASD + mouse-look, Three.js
+// ═══════════════════════════════════════════════════════════
+
+// ── Renderer ──────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x87ceeb, 0.018);
+scene.background = new THREE.Color(0x87ceeb);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 300);
+
+window.addEventListener('resize',()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+// ── Lighting ──────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const sun = new THREE.DirectionalLight(0xfff0d0, 1.3);
+sun.position.set(60,80,40);
+sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.near=1; sun.shadow.camera.far=300;
+['left','right','top','bottom'].forEach(k=>sun.shadow.camera[k]=(k==='left'||k==='bottom')?-100:100);
+scene.add(sun);
+
+// ── Ground ────────────────────────────────────────────────
+const GROUND_SIZE = 200;
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(GROUND_SIZE,GROUND_SIZE,40,40),
+  new THREE.MeshLambertMaterial({color:0x3a7a3a})
+);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Slightly bumpy ground via vertex displacement
+ground.geometry.attributes.position.array.forEach((_,i)=>{
+  if(i%3===1 && i>0 && i<ground.geometry.attributes.position.count*3-3){
+    ground.geometry.attributes.position.array[i] = (Math.random()-.5)*.3;
+  }
+});
+ground.geometry.attributes.position.needsUpdate=true;
+ground.geometry.computeVertexNormals();
+
+// ── Helpers ───────────────────────────────────────────────
+function rand(a,b){return a+Math.random()*(b-a);}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+// ── Scenery: Trees ─────────────────────────────────────────
+function makeTree(x,z){
+  const g=new THREE.Group();
+  const trunk=new THREE.Mesh(
+    new THREE.CylinderGeometry(.18,.22,2,8),
+    new THREE.MeshLambertMaterial({color:0x6B3A2A})
+  );
+  trunk.position.y=1; trunk.castShadow=true; g.add(trunk);
+  [[1.5,2.8,0],[1.1,3.9,.7],[.7,4.7,1.3]].forEach(([r,y,dy])=>{
+    const c=new THREE.Mesh(
+      new THREE.ConeGeometry(r,1.6,8),
+      new THREE.MeshLambertMaterial({color:0x2d6a2d})
+    );
+    c.position.y=y+dy; c.castShadow=true; g.add(c);
+  });
+  g.position.set(x,0,z);
+  scene.add(g);
+  return g;
+}
+
+for(let i=0;i<60;i++){
+  let x,z;
+  do{ x=rand(-95,95); z=rand(-95,95); }while(Math.abs(x)<10&&Math.abs(z)<10);
+  makeTree(x,z);
+}
+
+// ── Breakable Blocks ────────────────────────────────────────
+const BLOCK_TYPES = [
+  {name:'Stone',  color:0x888888, emoji:'🪨'},
+  {name:'Wood',   color:0x8B6914, emoji:'🪵'},
+  {name:'Dirt',   color:0x8B5E3C, emoji:'🟫'},
+];
+const worldBlocks=[]; // {mesh, type, hp}
+
+function spawnBlocks(){
+  for(let i=0;i<40;i++){
+    const bt = BLOCK_TYPES[Math.floor(Math.random()*BLOCK_TYPES.length)];
+    let x,z;
+    do{ x=rand(-80,80); z=rand(-80,80); }while(Math.sqrt(x*x+z*z)<8);
+    const mesh=new THREE.Mesh(
+      new THREE.BoxGeometry(1,1,1),
+      new THREE.MeshLambertMaterial({color:bt.color})
+    );
+    mesh.position.set(x,.5,z);
+    mesh.castShadow=true; mesh.receiveShadow=true;
+    mesh.userData={blockType:bt,hp:3};
+    scene.add(mesh);
+    worldBlocks.push(mesh);
+  }
+}
+spawnBlocks();
+
+// ── Player ────────────────────────────────────────────────
+const PLAYER_MAX_HP = 100;
+let playerHP = PLAYER_MAX_HP;
+let playerEquipped = {helmet:false,chest:false,legs:false,boots:false};
+const armourDef = ()=>{
+  let d=0;
+  if(playerEquipped.helmet) d+=0.10;
+  if(playerEquipped.chest)  d+=0.20;
+  if(playerEquipped.legs)   d+=0.15;
+  if(playerEquipped.boots)  d+=0.05;
+  return d; // 0–0.5 damage reduction
+};
+
+// Player group (simple humanoid)
+const playerGroup = new THREE.Group();
+scene.add(playerGroup);
+playerGroup.position.set(0,0,10);
+
+const skinMat  = new THREE.MeshLambertMaterial({color:0xFFD39B});
+const shirtMat = new THREE.MeshLambertMaterial({color:0x3355aa});
+const pantMat  = new THREE.MeshLambertMaterial({color:0x334455});
+const bootMat  = new THREE.MeshLambertMaterial({color:0x331100});
+
+// Body parts stored for armour swapping
+const playerParts={};
+
+function buildPlayer(){
+  playerGroup.children.forEach(c=>playerGroup.remove(c));
+
+  // Torso
+  const torsoMat = playerEquipped.chest
+    ? new THREE.MeshLambertMaterial({color:0x1a90ff})
+    : shirtMat;
+  playerParts.torso = new THREE.Mesh(new THREE.BoxGeometry(.5,.6,.3),torsoMat);
+  playerParts.torso.position.y=1.3; playerParts.torso.castShadow=true;
+  playerGroup.add(playerParts.torso);
+
+  // Head
+  const headMat = playerEquipped.helmet
+    ? new THREE.MeshLambertMaterial({color:0x1a90ff})
+    : skinMat;
+  playerParts.head = new THREE.Mesh(new THREE.BoxGeometry(.38,.38,.38),headMat);
+  playerParts.head.position.y=1.8; playerParts.head.castShadow=true;
+  playerGroup.add(playerParts.head);
+
+  // Legs
+  const legMat = playerEquipped.legs
+    ? new THREE.MeshLambertMaterial({color:0x1a90ff})
+    : pantMat;
+  [-1,1].forEach(s=>{
+    const leg=new THREE.Mesh(new THREE.BoxGeometry(.22,.55,.25),legMat);
+    leg.position.set(s*.14,.72,0); leg.castShadow=true;
+    playerGroup.add(leg);
+  });
+
+  // Boots
+  const bMat = playerEquipped.boots
+    ? new THREE.MeshLambertMaterial({color:0x1a90ff})
+    : bootMat;
+  [-1,1].forEach(s=>{
+    const b=new THREE.Mesh(new THREE.BoxGeometry(.24,.18,.3),bMat);
+    b.position.set(s*.14,.42,.02); playerGroup.add(b);
+  });
+
+  // Arms
+  [-1,1].forEach(s=>{
+    const arm=new THREE.Mesh(new THREE.BoxGeometry(.18,.5,.2),skinMat);
+    arm.position.set(s*.35,1.25,0); arm.castShadow=true;
+    playerGroup.add(arm);
+  });
+
+  // Right hand weapon/tool
+  buildHandItem();
+}
+
+// Weapon mesh held in right hand
+let handItem=null;
+function buildHandItem(){
+  if(handItem){ playerGroup.remove(handItem); handItem=null; }
+  const slot = hotbar[activeSlot];
+  if(!slot) return;
+
+  let mesh=null;
+  if(slot.id==='sword'||slot.id==='starter_sword'){
+    const g=new THREE.Group();
+    const blade=new THREE.Mesh(new THREE.BoxGeometry(.05,.7,.05),
+      new THREE.MeshLambertMaterial({color:slot.id==='sword'?0xaaddff:0xcccccc}));
+    blade.position.y=.35; g.add(blade);
+    const guard=new THREE.Mesh(new THREE.BoxGeometry(.22,.05,.06),
+      new THREE.MeshLambertMaterial({color:0xf5c842}));
+    guard.position.y=0; g.add(guard);
+    mesh=g;
+  } else if(slot.id==='bow'){
+    const g=new THREE.Group();
+    const bow=new THREE.Mesh(new THREE.TorusGeometry(.25,.025,6,12,Math.PI),
+      new THREE.MeshLambertMaterial({color:0x8B4513}));
+    bow.rotation.z=Math.PI/2; g.add(bow);
+    mesh=g;
+  } else if(slot.id==='pickaxe'){
+    const g=new THREE.Group();
+    const handle=new THREE.Mesh(new THREE.BoxGeometry(.05,.6,.05),
+      new THREE.MeshLambertMaterial({color:0x8B4513}));
+    handle.position.y=.2; g.add(handle);
+    const head2=new THREE.Mesh(new THREE.BoxGeometry(.3,.1,.08),
+      new THREE.MeshLambertMaterial({color:0xaaddff}));
+    head2.position.set(.05,.55,0); g.add(head2);
+    mesh=g;
+  } else if(slot.id==='block' && slot.count>0){
+    mesh=new THREE.Mesh(new THREE.BoxGeometry(.25,.25,.25),
+      new THREE.MeshLambertMaterial({color:BLOCK_TYPES[slot.blockIdx||0].color}));
+  }
+
+  if(mesh){
+    mesh.position.set(.38,.95,-.3);
+    mesh.rotation.set(-.3,.2,.1);
+    playerGroup.add(mesh);
+    handItem=mesh;
+  }
+}
+
+// ── Hotbar Data ────────────────────────────────────────────
+const hotbar = [
+  {id:'boots',      label:'Diamond Boots',       emoji:'👢', armourKey:'boots'},
+  {id:'chest',      label:'Diamond Chestplate',  emoji:'🛡️',  armourKey:'chest'},
+  {id:'legs',       label:'Diamond Leggings',    emoji:'👖', armourKey:'legs'},
+  {id:'helmet',     label:'Diamond Helmet',      emoji:'🪖', armourKey:'helmet'},
+  {id:'sword',      label:'Diamond Sword',       emoji:'⚔️',  armourKey:null},
+  {id:'bow',        label:'Diamond Bow',         emoji:'🏹', armourKey:null},
+  {id:'pickaxe',    label:'Diamond Pickaxe',     emoji:'⛏️',  armourKey:null},
+  {id:'block',      label:'Blocks',              emoji:'🪨', count:0, blockIdx:0},
+  {id:'block',      label:'Blocks',              emoji:'🪵', count:0, blockIdx:1},
+  {id:'block',      label:'Blocks',              emoji:'🟫', count:0, blockIdx:2},
+];
+
+let activeSlot = 4; // Start with sword selected
+
+// Build hotbar DOM
+const hotbarEl = document.getElementById('hotbar');
+hotbar.forEach((s,i)=>{
+  const div=document.createElement('div');
+  div.className='hslot'+(i===activeSlot?' active':'');
+  div.dataset.idx=i;
+  div.innerHTML=`<span class="slot-num">${i===9?0:i+1}</span>
+    <span style="font-size:1.4rem">${s.emoji}</span>
+    <span class="slot-label">${s.id==='block'?BLOCK_TYPES[s.blockIdx].name:s.label.replace('Diamond ','')}</span>
+    ${s.id==='block'?`<span class="stack-count" id="sc${i}">0</span>`:''}`;
+  div.addEventListener('click',()=>selectSlot(i));
+  div.addEventListener('contextmenu',e=>{e.preventDefault(); rightClick();});
+  hotbarEl.appendChild(div);
+});
+
+function selectSlot(i){
+  activeSlot=i;
+  document.querySelectorAll('.hslot').forEach((d,j)=>d.classList.toggle('active',j===i));
+  buildHandItem();
+  updateActionHint();
+}
+
+function updateActionHint(){
+  const hint=document.getElementById('action-hint');
+  const s=hotbar[activeSlot];
+  if(s.armourKey){
+    hint.textContent = playerEquipped[s.armourKey]
+      ? `${s.emoji} ${s.label} — already equipped`
+      : `Right-click to equip ${s.label}`;
+  } else if(s.id==='sword'||s.id==='starter_sword'){
+    hint.textContent='Left-click to swing sword at dragon';
+  } else if(s.id==='bow'){
+    hint.textContent='Left-click to shoot arrow at dragon';
+  } else if(s.id==='pickaxe'){
+    hint.textContent='Left-click to mine blocks';
+  } else if(s.id==='block'){
+    hint.textContent=s.count>0?'Right-click to place block | Left-click mines':'Find blocks to mine!';
+  }
+}
+
+function rightClick(){
+  const s=hotbar[activeSlot];
+  if(s.armourKey){
+    if(!playerEquipped[s.armourKey]){
+      playerEquipped[s.armourKey]=true;
+      buildPlayer();
+      updateArmourIcons();
+      logMsg(`✅ Equipped ${s.label}!`);
+    } else {
+      logMsg(`Already wearing ${s.label}`);
+    }
+    updateActionHint();
+  }
+}
+
+function updateArmourIcons(){
+  const map={helmet:'ai-helmet',chest:'ai-chest',legs:'ai-legs',boots:'ai-boots'};
+  Object.entries(map).forEach(([k,id])=>{
+    document.getElementById(id).classList.toggle('equipped',playerEquipped[k]);
+  });
+}
+
+// ── Dragon ─────────────────────────────────────────────────
+const DRAGON_MAX_HP = 300;
+let dragonHP = DRAGON_MAX_HP;
+let dragonAngle=0, dragonRadius=28, dragonHeight=14;
+let dragonAttackTimer=0, dragonAttackCooldown=3; // seconds
+let dragonPhase=1; // 1=circling, 2=diving
+
+const dragonGroup=new THREE.Group(); scene.add(dragonGroup);
+
+// Dragon body
+const dragonBodyMat = new THREE.MeshLambertMaterial({color:0x1a0a2e});
+const dragonBody=new THREE.Mesh(new THREE.SphereGeometry(1.6,12,10),dragonBodyMat);
+dragonGroup.add(dragonBody);
+
+// Dragon head
+const dragonHead=new THREE.Mesh(
+  new THREE.SphereGeometry(.9,10,8),
+  new THREE.MeshLambertMaterial({color:0x220a3e})
+);
+dragonHead.position.set(2.2,.3,0); dragonGroup.add(dragonHead);
+
+// Dragon neck
+const dragonNeck=new THREE.Mesh(
+  new THREE.CylinderGeometry(.4,.6,1.5,8),
+  dragonBodyMat
+);
+dragonNeck.position.set(1.5,.15,0);
+dragonNeck.rotation.z=Math.PI/2.5;
+dragonGroup.add(dragonNeck);
+
+// Dragon eyes (glowing red)
+[-1,1].forEach(s=>{
+  const eye=new THREE.Mesh(
+    new THREE.SphereGeometry(.12,6,6),
+    new THREE.MeshBasicMaterial({color:0xff0000})
+  );
+  eye.position.set(2.7,.55,s*.3); dragonGroup.add(eye);
+});
+
+// Dragon tail
+const dragonTail=new THREE.Mesh(
+  new THREE.ConeGeometry(.4,3,8),
+  dragonBodyMat
+);
+dragonTail.position.set(-2.8,-.2,0);
+dragonTail.rotation.z=Math.PI/2;
+dragonGroup.add(dragonTail);
+
+// Wings
+const wingMat=new THREE.MeshLambertMaterial({color:0x3a0a5e,side:THREE.DoubleSide});
+[-1,1].forEach(s=>{
+  const wing=new THREE.Mesh(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,0,0),
+      new THREE.Vector3(-.5*s,1.5,s*3.5),
+      new THREE.Vector3(0,-.5,s*5),
+      new THREE.Vector3(.5*s,-.5,s*3),
+    ].map(v=>v)),
+    wingMat
+  );
+  // Simple wing as wide box
+  const wg=new THREE.Mesh(new THREE.BoxGeometry(.15,1.5,5),wingMat);
+  wg.position.set(-.3,.8,s*2.8);
+  wg.rotation.x=.3*s;
+  wg.castShadow=true;
+  dragonGroup.add(wg);
+  wing._mesh=wg;
+});
+
+// Dragon HP bar (3D billboard above dragon)
+const dragonHpGeoFull=new THREE.PlaneGeometry(4,.35);
+const dragonHpBack=new THREE.Mesh(dragonHpGeoFull,new THREE.MeshBasicMaterial({color:0x440000}));
+dragonGroup.add(dragonHpBack);
+dragonHpBack.position.set(0,3.5,0);
+
+const dragonHpFill=new THREE.Mesh(
+  new THREE.PlaneGeometry(4,.35),
+  new THREE.MeshBasicMaterial({color:0xff2222})
+);
+dragonHpFill.position.set(0,3.5,.01);
+dragonGroup.add(dragonHpFill);
+
+function updateDragonHpBar3D(){
+  const pct=dragonHP/DRAGON_MAX_HP;
+  dragonHpFill.scale.x=Math.max(0.001,pct);
+  dragonHpFill.position.x = -(4*(1-pct))/2;
+}
+
+// Visible fire breath particle group
+const fireGroup=new THREE.Group(); scene.add(fireGroup);
+const fireParticles=[];
+
+function spawnFire(origin,dir){
+  for(let i=0;i<8;i++){
+    const p=new THREE.Mesh(
+      new THREE.SphereGeometry(rand(.1,.35),4,4),
+      new THREE.MeshBasicMaterial({color:new THREE.Color(1,rand(0,.5),0)})
+    );
+    p.position.copy(origin);
+    const spread=new THREE.Vector3(rand(-.3,.3),rand(-.2,.2),rand(-.3,.3));
+    p.userData.vel=dir.clone().multiplyScalar(rand(12,18)).add(spread);
+    p.userData.life=rand(.4,.8);
+    fireGroup.add(p); fireParticles.push(p);
+  }
+}
+
+// ── Raycaster for attacks ──────────────────────────────────
+const raycaster=new THREE.Raycaster();
+
+// ── Player movement state ──────────────────────────────────
+const keys={};
+window.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  const n=parseInt(e.key);
+  if(n>=1&&n<=9) selectSlot(n-1);
+  if(e.key==='0') selectSlot(9);
+});
+window.addEventListener('keyup',e=>{ keys[e.code]=false; });
+
+// Camera angles (yaw/pitch)
+let camYaw=0, camPitch=0.3;
+const CAM_DIST=6, CAM_HEIGHT=3;
+
+// Pointer lock
+let locked=false;
+document.addEventListener('mousemove',e=>{
+  if(!locked||!gameRunning) return;
+  camYaw   -= e.movementX*.002;
+  camPitch  = clamp(camPitch+e.movementY*.002, -.1, 1.2);
+});
+
+renderer.domElement.addEventListener('click',()=>{
+  if(!gameRunning) return;
+  if(!locked){ renderer.domElement.requestPointerLock(); return; }
+  leftClick();
+});
+renderer.domElement.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  if(!locked||!gameRunning) return;
+  rightClick();
+});
+
+document.addEventListener('pointerlockchange',()=>{
+  locked = document.pointerLockElement===renderer.domElement;
+  document.getElementById('lock-hint').style.display = locked?'none':'block';
+});
+
+// ── Attack cooldowns ───────────────────────────────────────
+let swordCooldown=0, bowCooldown=0, pickaxeCooldown=0;
+let swingAnim=0; // for sword swing animation
+
+function leftClick(){
+  const s=hotbar[activeSlot];
+  if(s.id==='sword' && swordCooldown<=0){
+    swordCooldown=.7;
+    swingAnim=1;
+    // Raycast toward dragon
+    const dir=new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    raycaster.set(camera.position,dir);
+    const dist=playerGroup.position.distanceTo(dragonGroup.position);
+    if(dist<10){
+      const dmg=15+(playerEquipped.chest?5:0)+(playerEquipped.helmet?3:0);
+      hitDragon(dmg,'⚔️ Sword hit!');
+    } else {
+      logMsg('Too far for sword! Get closer.');
+    }
+  } else if(s.id==='bow' && bowCooldown<=0){
+    bowCooldown=1.2;
+    shootArrow();
+  } else if(s.id==='pickaxe' && pickaxeCooldown<=0){
+    pickaxeCooldown=.5;
+    mineBlock();
+  } else if(s.id==='block'){
+    mineBlock();
+  }
+}
+
+function hitDragon(dmg, msg){
+  dragonHP=Math.max(0,dragonHP-dmg);
+  updateDragonHPUI();
+  logMsg(`${msg} -${dmg} HP (Dragon: ${dragonHP}/${DRAGON_MAX_HP})`);
+  if(dragonHP<=0) winGame();
+}
+
+function shootArrow(){
+  const dist=playerGroup.position.distanceTo(dragonGroup.position);
+  if(dist<60){
+    const dmg=10+(playerEquipped.chest?3:0);
+    hitDragon(dmg,'🏹 Arrow hit!');
+    spawnArrowEffect();
+  } else {
+    logMsg('Dragon is out of range!');
+  }
+}
+
+// Visual arrow
+function spawnArrowEffect(){
+  const arrow=new THREE.Mesh(
+    new THREE.CylinderGeometry(.03,.03,.8,6),
+    new THREE.MeshLambertMaterial({color:0x8B4513})
+  );
+  arrow.position.copy(playerGroup.position).add(new THREE.Vector3(0,1.5,0));
+  const target=dragonGroup.position.clone();
+  const dir=target.sub(arrow.position).normalize();
+  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir);
+  scene.add(arrow);
+  let t=0;
+  const vel=dir.multiplyScalar(30);
+  const startPos=arrow.position.clone();
+  const iv=setInterval(()=>{
+    t+=.016;
+    arrow.position.copy(startPos).addScaledVector(vel,t);
+    if(t>1||!gameRunning){ scene.remove(arrow); clearInterval(iv); }
+  },16);
+}
+
+function mineBlock(){
+  const dir=new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  raycaster.set(camera.position,dir);
+  const meshes=worldBlocks.map(b=>b);
+  const hits=raycaster.intersectObjects(meshes);
+  if(hits.length>0){
+    const b=hits[0].object;
+    if(b.userData.hp!==undefined){
+      b.userData.hp--;
+      b.material.color.offsetHSL(0,0,-.12);
+      if(b.userData.hp<=0){
+        const bt=b.userData.blockType;
+        scene.remove(b);
+        worldBlocks.splice(worldBlocks.indexOf(b),1);
+        // Add to matching slot
+        const slotIdx=8+bt.emoji===BLOCK_TYPES[0].emoji?0:bt===BLOCK_TYPES[1]?1:bt===BLOCK_TYPES[2]?2:0;
+        // find correct block slot
+        for(let i=7;i<10;i++){
+          if(hotbar[i].blockIdx===BLOCK_TYPES.indexOf(bt)){
+            if(hotbar[i].count<64){ hotbar[i].count++; }
+            document.getElementById('sc'+i).textContent=hotbar[i].count;
+            logMsg(`+1 ${bt.name} (${hotbar[i].count}/64)`);
+            break;
+          }
+        }
+        buildHandItem();
+      }
+    }
+  } else {
+    logMsg('No block in range to mine.');
+  }
+}
+
+// ── Dragon AI ──────────────────────────────────────────────
+let gameRunning=false;
+
+function updateDragon(dt){
+  dragonAttackTimer+=dt;
+
+  // Phase change
+  if(dragonHP<DRAGON_MAX_HP*.4) dragonPhase=2;
+
+  if(dragonPhase===1){
+    dragonAngle+=dt*.4;
+    dragonGroup.position.set(
+      Math.cos(dragonAngle)*dragonRadius,
+      dragonHeight+Math.sin(dragonAngle*1.7)*2,
+      Math.sin(dragonAngle)*dragonRadius
+    );
+  } else {
+    // Phase 2: tighter, faster circles + occasional dive
+    dragonAngle+=dt*.7;
+    dragonRadius=Math.max(15,dragonRadius-.5*dt);
+    dragonGroup.position.set(
+      Math.cos(dragonAngle)*dragonRadius,
+      dragonHeight*.7+Math.sin(dragonAngle*2)*3,
+      Math.sin(dragonAngle)*dragonRadius
+    );
+  }
+
+  // Face direction of travel
+  const lookAt=playerGroup.position.clone();
+  dragonGroup.lookAt(lookAt);
+
+  // Billboard HP bar always faces camera
+  dragonHpBack.lookAt(camera.position);
+  dragonHpFill.lookAt(camera.position);
+  updateDragonHpBar3D();
+
+  // Wing flap
+  const t=performance.now()*.001;
+  dragonGroup.children.forEach(c=>{
+    if(c.geometry&&c.geometry.type==='BoxGeometry'&&c.scale.z>2){
+      c.rotation.z=Math.sin(t*3)*.4;
+    }
+  });
+
+  // Attack player
+  if(dragonAttackTimer>=dragonAttackCooldown){
+    dragonAttackTimer=0;
+    const dist=dragonGroup.position.distanceTo(playerGroup.position);
+    const phase2=dragonPhase===2;
+    dragonAttackCooldown=phase2?1.8:3;
+    if(dist<40){
+      // Fire breath
+      const origin=dragonGroup.position.clone().add(new THREE.Vector3(2,.3,0).applyQuaternion(dragonGroup.quaternion));
+      const dir=playerGroup.position.clone().sub(origin).normalize();
+      spawnFire(origin,dir);
+      // Deal damage
+      if(dist<20){
+        let dmg=phase2?18:12;
+        dmg=Math.round(dmg*(1-armourDef()));
+        playerHP=Math.max(0,playerHP-dmg);
+        updatePlayerHPUI();
+        flashRed();
+        logMsg(`🔥 Dragon breathes fire! -${dmg} HP`);
+        if(playerHP<=0) loseGame();
+      }
+    }
+  }
+
+  // Update fire particles
+  for(let i=fireParticles.length-1;i>=0;i--){
+    const p=fireParticles[i];
+    p.userData.life-=dt;
+    p.position.addScaledVector(p.userData.vel,dt);
+    p.userData.vel.y+=dt*2;
+    p.material.opacity=p.userData.life*2;
+    p.material.transparent=true;
+    if(p.userData.life<=0){
+      fireGroup.remove(p);
+      fireParticles.splice(i,1);
+    }
+  }
+}
+
+// ── Player movement ────────────────────────────────────────
+const SPEED=7, JUMP_V=8, GRAVITY=-22;
+let velY=0, onGround=true;
+
+function updatePlayer(dt){
+  // Move direction from camera yaw
+  const forward=new THREE.Vector3(-Math.sin(camYaw),0,-Math.cos(camYaw));
+  const right  =new THREE.Vector3( Math.cos(camYaw),0,-Math.sin(camYaw));
+  const move=new THREE.Vector3();
+  if(keys['KeyW']) move.add(forward);
+  if(keys['KeyS']) move.sub(forward);
+  if(keys['KeyA']) move.sub(right);
+  if(keys['KeyD']) move.add(right);
+  if(move.lengthSq()>0){ move.normalize().multiplyScalar(SPEED*dt); }
+  playerGroup.position.add(move);
+
+  // Clamp to world
+  playerGroup.position.x=clamp(playerGroup.position.x,-95,95);
+  playerGroup.position.z=clamp(playerGroup.position.z,-95,95);
+
+  // Jump & gravity
+  if(keys['Space']&&onGround){ velY=JUMP_V; onGround=false; }
+  velY+=GRAVITY*dt;
+  playerGroup.position.y+=velY*dt;
+  if(playerGroup.position.y<=0){ playerGroup.position.y=0; velY=0; onGround=true; }
+
+  // Face movement direction
+  if(move.lengthSq()>0){
+    const angle=Math.atan2(move.x,move.z);
+    playerGroup.rotation.y=angle;
+  }
+
+  // Sword cooldowns
+  if(swordCooldown>0)   swordCooldown-=dt;
+  if(bowCooldown>0)     bowCooldown-=dt;
+  if(pickaxeCooldown>0) pickaxeCooldown-=dt;
+
+  // Swing animation
+  if(swingAnim>0){
+    swingAnim=Math.max(0,swingAnim-dt*4);
+    if(handItem) handItem.rotation.x=-swingAnim*1.5;
+  }
+
+  // Camera position (third-person)
+  const camOffset=new THREE.Vector3(
+    Math.sin(camYaw)*CAM_DIST,
+    CAM_HEIGHT+Math.sin(camPitch)*CAM_DIST,
+   -Math.cos(camYaw)*CAM_DIST * Math.cos(camPitch)
+  );
+  // Smooth camera
+  camera.position.lerp(playerGroup.position.clone().add(camOffset),.15);
+  camera.lookAt(playerGroup.position.clone().add(new THREE.Vector3(0,1.5,0)));
+}
+
+// ── UI Helpers ─────────────────────────────────────────────
+function updatePlayerHPUI(){
+  document.getElementById('player-hp-bar').style.width=
+    Math.max(0,playerHP/PLAYER_MAX_HP*100)+'%';
+  const c=playerHP>50?'#27ae60':playerHP>25?'#f39c12':'#c0392b';
+  document.getElementById('player-hp-bar').style.background=c;
+}
+
+function updateDragonHPUI(){
+  document.getElementById('dragon-hp-bar').style.width=
+    Math.max(0,dragonHP/DRAGON_MAX_HP*100)+'%';
+}
+
+function flashRed(){
+  const f=document.getElementById('hit-flash');
+  f.style.opacity='1'; setTimeout(()=>f.style.opacity='0',120);
+}
+
+function logMsg(txt){
+  const el=document.createElement('div');
+  el.className='msg'; el.textContent=txt;
+  document.getElementById('msglog').appendChild(el);
+  el.addEventListener('animationend',()=>el.remove());
+}
+
+// ── Win / Lose ─────────────────────────────────────────────
+function winGame(){
+  gameRunning=false;
+  document.exitPointerLock();
+  const s=document.getElementById('end-screen');
+  document.getElementById('end-title').textContent='🏆 DRAGON SLAIN!';
+  document.getElementById('end-title').style.color='#f5c842';
+  document.getElementById('end-msg').textContent=
+    `You defeated the dragon with ${playerHP} HP remaining!`;
+  s.style.display='flex';
+}
+
+function loseGame(){
+  gameRunning=false;
+  document.exitPointerLock();
+  const s=document.getElementById('end-screen');
+  document.getElementById('end-title').textContent='💀 YOU FELL!';
+  document.getElementById('end-title').style.color='#c0392b';
+  document.getElementById('end-msg').textContent=
+    `The dragon was too powerful. Dragon HP remaining: ${dragonHP}`;
+  s.style.display='flex';
+}
+
+// ── Start ──────────────────────────────────────────────────
+function startGame(){
+  // Reset state
+  playerHP=PLAYER_MAX_HP; dragonHP=DRAGON_MAX_HP;
+  playerEquipped={helmet:false,chest:false,legs:false,boots:false};
+  dragonAngle=0; dragonRadius=28; dragonHeight=14;
+  dragonAttackTimer=0; dragonPhase=1; dragonAttackCooldown=3;
+  camYaw=0; camPitch=0.3;
+  playerGroup.position.set(0,0,10);
+  hotbar.forEach(s=>{ if(s.id==='block') s.count=0; });
+  document.querySelectorAll('.stack-count').forEach((el,i)=>el&&(el.textContent='0'));
+
+  updatePlayerHPUI(); updateDragonHPUI(); updateArmourIcons();
+  buildPlayer(); selectSlot(4); updateActionHint();
+
+  document.getElementById('overlay').style.display='none';
+  document.getElementById('end-screen').style.display='none';
+  gameRunning=true;
+  renderer.domElement.requestPointerLock();
+}
+
+document.getElementById('start-btn').addEventListener('click',startGame);
+document.getElementById('restart-btn').addEventListener('click',startGame);
+
+// ── Render loop ────────────────────────────────────────────
+const clock=new THREE.Clock();
+(function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),.05);
+  if(gameRunning){
+    updatePlayer(dt);
+    updateDragon(dt);
+  }
+  renderer.render(scene,camera);
+})();
+</script>
+</body>
+</html>

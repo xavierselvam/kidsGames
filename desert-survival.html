@@ -1,0 +1,2198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desert Survival</title>
+
+  <!-- ─────────────────────────────────────────────
+       Three.js r165 via CDN  (ES Module importmap)
+       ───────────────────────────────────────────── -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    /* ── Reset & base ─────────────────────────── */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;           /* no scrollbars */
+      background: #000;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* ── Three.js canvas ──────────────────────── */
+    canvas {
+      display: block;             /* removes inline gap */
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* ══════════════════════════════════════════════
+       STEP 10 — UI Overlay
+    ══════════════════════════════════════════════ */
+
+    /* ── Click-to-play overlay ────────────────── */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 3, 10, 0.88);
+      z-index: 10;
+      cursor: pointer;
+      user-select: none;
+    }
+    #overlay h1 {
+      font-size: clamp(2rem, 6vw, 4rem);
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #d4a853;
+      text-shadow: 0 0 30px rgba(212,168,83,0.6), 0 2px 8px #000;
+      margin-bottom: 0.4em;
+    }
+    #overlay p.tagline {
+      font-size: clamp(0.9rem, 2vw, 1.2rem);
+      color: #aaa;
+      font-style: italic;
+      margin-bottom: 2.5em;
+      text-align: center;
+      max-width: 480px;
+      padding: 0 1rem;
+    }
+    #overlay .cta {
+      font-size: 1rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #fff;
+      border: 2px solid rgba(255,255,255,0.4);
+      padding: 0.75em 2.5em;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+    #overlay .controls-hint {
+      position: absolute;
+      bottom: 2rem;
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Crosshair (visible during play) ─────── */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      pointer-events: none;
+      display: none;           /* shown when pointer is locked */
+      z-index: 5;
+    }
+    #crosshair::before,
+    #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 255, 255, 0.75);
+    }
+    #crosshair::before {         /* horizontal bar */
+      width: 100%;
+      height: 2px;
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%);
+    }
+    #crosshair::after {          /* vertical bar */
+      width: 2px;
+      height: 100%;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+    }
+
+    /* ── Stamina bar ─────────────────────────── */
+    #staminaWrap {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      z-index: 5;
+      pointer-events: none;
+    }
+    #staminaLabel {
+      font-size: 0.58rem;
+      letter-spacing: 0.22em;
+      color: rgba(255, 215, 80, 0.7);
+      text-transform: uppercase;
+      font-family: monospace;
+    }
+    #staminaTrack {
+      width: 160px;
+      height: 6px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255, 215, 80, 0.3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #staminaFill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #ffaa00, #ffe566);
+      border-radius: 3px;
+      transition: background 0.25s;
+    }
+
+    /* ── Death screen ─────────────────────────── */
+    #deathScreen {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(70, 0, 0, 0.93);
+      z-index: 15;
+      pointer-events: none;
+      user-select: none;
+      animation: bloodFade 0.4s ease-out;
+    }
+    @keyframes bloodFade {
+      from { background: rgba(180, 0, 0, 0.98); }
+      to   { background: rgba(70,  0, 0, 0.93); }
+    }
+
+    /* ── Gem pickup notification ───────────────── */
+    #gemPickup {
+      position: fixed;
+      top: 28%;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      color: #00ffcc;
+      font-size: 1.35rem;
+      letter-spacing: 0.22em;
+      text-shadow: 0 0 18px #00ffcc, 0 0 40px #00cc99, 0 2px 8px #000;
+      font-family: monospace;
+      text-transform: uppercase;
+      white-space: nowrap;
+      z-index: 6;
+      pointer-events: none;
+    }
+    @keyframes gemFadeOut {
+      0%   { opacity: 1; transform: translateX(-50%) translateY(0); }
+      65%  { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-14px); }
+    }
+
+    /* ── Altar interaction hint ────────────────── */
+    #altarHint {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      color: rgba(255, 215, 80, 0.95);
+      font-size: 0.88rem;
+      letter-spacing: 0.18em;
+      text-shadow: 0 0 12px rgba(255,200,50,0.7), 0 2px 6px #000;
+      font-family: monospace;
+      text-transform: uppercase;
+      white-space: nowrap;
+      z-index: 6;
+      pointer-events: none;
+      animation: altarPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes altarPulse {
+      0%, 100% { opacity: 0.75; }
+      50%       { opacity: 1.00; }
+    }
+    /* Gem offered confirmation message */
+    #altarOffered {
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      color: #ffe566;
+      font-size: 1.25rem;
+      letter-spacing: 0.22em;
+      text-shadow: 0 0 24px #ffcc00, 0 0 50px #ff8800, 0 2px 8px #000;
+      font-family: monospace;
+      text-transform: uppercase;
+      white-space: nowrap;
+      z-index: 6;
+      pointer-events: none;
+    }
+    @keyframes offerFade {
+      0%   { opacity: 1; transform: translateX(-50%) translateY(0); }
+      60%  { opacity: 1; transform: translateX(-50%) translateY(-8px); }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    }
+    #blackout {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 50;
+      display: none;
+      opacity: 0;
+      transition: opacity 1.5s ease-in;
+      pointer-events: none;
+    }
+      font-size: clamp(2.5rem, 8vw, 5rem);
+      font-weight: 900;
+      color: #ff2200;
+      text-shadow: 0 0 50px rgba(255,34,0,0.9), 0 2px 10px #000;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 0.45em;
+    }
+    #deathScreen p {
+      font-size: 1.05rem;
+      color: rgba(255, 170, 150, 0.82);
+      font-style: italic;
+      margin-bottom: 0.3em;
+      letter-spacing: 0.05em;
+    }
+    #deathScreen .death-counter {
+      margin-top: 1.4em;
+      font-size: 1.2rem;
+      color: rgba(255, 100, 80, 0.65);
+      letter-spacing: 0.12em;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── Click-to-play overlay (Step 10) ──────── -->
+  <div id="overlay">
+    <h1>Desert Survival</h1>
+    <p class="tagline">You survived the crash.<br>Can you survive the night?</p>
+    <div class="cta">Click to Play</div>
+    <p class="controls-hint">WASD — Move &nbsp;|&nbsp; Mouse — Look &nbsp;|&nbsp; ESC — Pause</p>
+  </div>
+
+  <!-- ── Crosshair (Step 10) ───────────────────── -->
+  <div id="crosshair"></div>
+
+  <!-- ── Stamina bar ──────────────────────────────── -->
+  <div id="staminaWrap">
+    <div id="staminaLabel">Stamina</div>
+    <div id="staminaTrack"><div id="staminaFill"></div></div>
+  </div>
+
+  <!-- ── Gem pickup notification ──────────────────── -->
+  <div id="gemPickup">✦ Gem Collected! ✦</div>
+
+  <!-- ── Altar interaction hint ───────────────────── -->
+  <div id="altarHint">[E] Place Gem in Altar</div>
+  <div id="altarOffered">★ The Shrine Awakens... ★</div>
+
+  <!-- ── Death screen ─────────────────────────────── -->
+  <div id="blackout"></div>
+  <div id="deathScreen">
+    <h2>&#9760; You Died</h2>
+    <p>The desert viper's venom courses through your veins...</p>
+    <p class="death-counter">Restarting in <span id="countdown">5</span>s</p>
+  </div>
+
+  <!-- ─────────────────────────────────────────────
+       Game script — ES Module
+       ───────────────────────────────────────────── -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+    // ════════════════════════════════════════════════
+    // STEP 2 — Renderer, Scene, Camera & Lighting
+    // ════════════════════════════════════════════════
+
+    // ── Renderer ─────────────────────────────────────
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;  // soft shadow edges
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; // cinematic color grading
+    renderer.toneMappingExposure = 1.8;                 // bright enough to see
+    document.body.appendChild(renderer.domElement);
+
+    // ── Scene ─────────────────────────────────────────
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0510);       // deep night purple-black
+    scene.fog = new THREE.FogExp2(0x0a0510, 0.018);     // exponential fog for depth/dread
+
+    // ── Camera (first-person eye height) ──────────────
+    const camera = new THREE.PerspectiveCamera(
+      75,                                               // FOV
+      window.innerWidth / window.innerHeight,           // aspect
+      0.1,                                              // near clip
+      500                                               // far clip
+    );
+    camera.position.set(0, 1.7, 0);                    // eye height ~1.7 units
+
+    // ── Responsive resize ─────────────────────────────
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ── Lighting — moonlight (cold blue-white) ────────
+    // Ambient: fills shadows so nothing is pure black
+    const ambientLight = new THREE.AmbientLight(0x8899bb, 2.5); // much brighter fill
+    scene.add(ambientLight);
+
+    // Directional moonlight from upper-left
+    const moonLight = new THREE.DirectionalLight(0xccd8ff, 3.5); // strong moonlight
+    moonLight.position.set(-50, 80, -30);
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.width  = 2048;
+    moonLight.shadow.mapSize.height = 2048;
+    moonLight.shadow.camera.near = 1;
+    moonLight.shadow.camera.far  = 300;
+    moonLight.shadow.camera.left = moonLight.shadow.camera.bottom = -100;
+    moonLight.shadow.camera.right = moonLight.shadow.camera.top   =  100;
+    moonLight.shadow.bias = -0.001;
+    scene.add(moonLight);
+
+    // ════════════════════════════════════════════════
+    // STEP 3 — Desert Ground & Sky
+    // ════════════════════════════════════════════════
+
+    // ── Ground plane (500×500 sand) ───────────────────
+    const groundGeo = new THREE.PlaneGeometry(500, 500, 64, 64);
+    const groundMat = new THREE.MeshStandardMaterial({
+      color: 0xc8a85a,       // sand — visible at night
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;   // lay flat
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // ── Hemisphere light — sky vs ground ambient tint ─
+    // (sky: cold night blue | ground: warm sand bounce)
+    const hemiLight = new THREE.HemisphereLight(0x334466, 0x8a6530, 1.8);
+    scene.add(hemiLight);
+
+    // ── Starfield ─────────────────────────────────────
+    const starCount = 3000;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi   = Math.acos(Math.random());           // upper hemisphere only
+      const r     = 400;
+      starPositions[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+      starPositions[i * 3 + 1] = Math.abs(r * Math.cos(phi)) + 10; // keep above horizon
+      starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 2.2,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 1.0,
+    });
+    scene.add(new THREE.Points(starGeo, starMat));
+
+    // ── Moon ──────────────────────────────────────────
+    // Placed along the moonLight direction, far out at the sky's edge.
+    const moonSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(10, 28, 18),
+      new THREE.MeshStandardMaterial({
+        color:             0xf0eccc,
+        emissive:          0xddd8aa,
+        emissiveIntensity: 1.3,
+        roughness:         0.95,
+        metalness:         0.0,
+      })
+    );
+    const moonDir = new THREE.Vector3(-50, 80, -30).normalize().multiplyScalar(370);
+    moonSphere.position.copy(moonDir);
+    scene.add(moonSphere);
+
+    // ════════════════════════════════════════════════
+    // STEP 4 — Crashed Airplane (Three.js primitives)
+    // ════════════════════════════════════════════════
+
+    // Shared materials
+    const metalMat = new THREE.MeshStandardMaterial({
+      color: 0xb0b8c8,     // weathered aluminium
+      roughness: 0.6,
+      metalness: 0.5,
+    });
+    const darkMetalMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3a3a,
+      roughness: 0.8,
+      metalness: 0.4,
+    });
+
+    const plane = new THREE.Group();  // the whole wreck
+
+    // ── Fuselage (main body) ──────────────────────────
+    const fuselage = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, 2, 14),
+      metalMat
+    );
+    fuselage.castShadow = true;
+    plane.add(fuselage);
+
+    // Nose cone (tapered box)
+    const nose = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0, 1.0, 3, 8),
+      metalMat
+    );
+    nose.rotation.z = Math.PI / 2;
+    nose.position.set(0, 0, -8.5);   // front of fuselage
+    nose.castShadow = true;
+    plane.add(nose);
+
+    // ── Wings ─────────────────────────────────────────
+    // Left wing — drooping down (crash damage)
+    const leftWing = new THREE.Mesh(
+      new THREE.BoxGeometry(9, 0.3, 3.5),
+      metalMat
+    );
+    leftWing.position.set(-5.5, -0.6, 1);
+    leftWing.rotation.z = -0.3;      // drooping
+    leftWing.castShadow = true;
+    plane.add(leftWing);
+
+    // Right wing — still mostly up but bent
+    const rightWing = new THREE.Mesh(
+      new THREE.BoxGeometry(9, 0.3, 3.5),
+      metalMat
+    );
+    rightWing.position.set(5.5, -0.2, 1);
+    rightWing.rotation.z = 0.1;
+    rightWing.castShadow = true;
+    plane.add(rightWing);
+
+    // ── Tail section ──────────────────────────────────
+    // Vertical stabilizer
+    const tailFin = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, 3.5, 2.5),
+      metalMat
+    );
+    tailFin.position.set(0, 2.2, 6.5);
+    tailFin.castShadow = true;
+    plane.add(tailFin);
+
+    // Horizontal stabilizers
+    const hStabL = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.25, 1.5), metalMat);
+    hStabL.position.set(-2.0, 0.8, 6.5);
+    hStabL.castShadow = true;
+    plane.add(hStabL);
+
+    const hStabR = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.25, 1.5), metalMat);
+    hStabR.position.set(2.0, 0.8, 6.5);
+    hStabR.castShadow = true;
+    plane.add(hStabR);
+
+    // ── Engine nacelle (left, destroyed) ──────────────
+    const engine = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.6, 2.8, 10),
+      darkMetalMat
+    );
+    engine.rotation.z = Math.PI / 2;
+    engine.position.set(-4, -0.9, 0.5);
+    engine.castShadow = true;
+    plane.add(engine);
+
+    // Broken engine fan disc
+    const fanDisc = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.5, 0.1, 10),
+      darkMetalMat
+    );
+    fanDisc.rotation.z = Math.PI / 2;
+    fanDisc.position.set(-5.5, -0.9, 0.5);
+    plane.add(fanDisc);
+
+    // ── Debris — scattered hull pieces ────────────────
+    const debrisPositions = [
+      [-3, 0, -5], [2, 0, -7], [-1, 0, 4], [4, 0, -3], [-5, 0, 2]
+    ];
+    debrisPositions.forEach(([dx, dy, dz]) => {
+      const debris = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          0.4 + Math.random() * 1.2,
+          0.1 + Math.random() * 0.4,
+          0.4 + Math.random() * 1.2
+        ),
+        metalMat
+      );
+      debris.position.set(dx, dy, dz);
+      debris.rotation.y = Math.random() * Math.PI;
+      debris.rotation.x = (Math.random() - 0.5) * 0.4;
+      debris.castShadow = true;
+      debris.receiveShadow = true;
+      plane.add(debris);
+    });
+
+    // ── Position & orient the whole wreck ─────────────
+    plane.position.set(0, 0.5, -12);   // ahead of player spawn
+    plane.rotation.y = Math.PI / 6;    // rotated slightly off-axis
+    plane.rotation.z = 0.15;           // nose dug into sand
+    plane.rotation.x = -0.08;
+
+    // Sink it slightly into the ground
+    plane.position.y = -0.3;
+
+    scene.add(plane);
+
+    // ════════════════════════════════════════════════
+    // FIRE — Burning wreckage
+    // ════════════════════════════════════════════════
+
+    // Builds an emitter at world position wx,wy,wz.
+    // Returns refs needed for animation.
+    function makeFireEmitter(wx, wy, wz, scale) {
+      const emitter = new THREE.Group();
+      emitter.position.set(wx, wy, wz);
+
+      const flameColors = [0xff6600, 0xff3300, 0xffaa00, 0xff2200, 0xffcc00, 0xff8800];
+      const flames = [];
+
+      // 7 stacked, randomly offset cone flames per emitter
+      for (let i = 0; i < 7; i++) {
+        const h = (0.7 + Math.random() * 1.1) * scale;
+        const r = (0.12 + Math.random() * 0.15) * scale;
+        const flame = new THREE.Mesh(
+          new THREE.ConeGeometry(r, h, 6),
+          new THREE.MeshBasicMaterial({
+            color: flameColors[i % flameColors.length],
+            transparent: true,
+            opacity: 0.65 + Math.random() * 0.3,
+            depthWrite: false,
+          })
+        );
+        flame.position.set(
+          (Math.random() - 0.5) * 0.4 * scale,
+          h / 2,
+          (Math.random() - 0.5) * 0.4 * scale
+        );
+        flame.userData.baseH    = h;
+        flame.userData.phase    = Math.random() * Math.PI * 2;
+        flame.userData.freqY    = 3.0 + Math.random() * 5.0;
+        flame.userData.freqSway = 2.0 + Math.random() * 3.0;
+        emitter.add(flame);
+        flames.push(flame);
+      }
+
+      // Smoke puff (dark semi-transparent sphere drifting up)
+      for (let i = 0; i < 4; i++) {
+        const smoke = new THREE.Mesh(
+          new THREE.SphereGeometry((0.3 + Math.random() * 0.4) * scale, 6, 6),
+          new THREE.MeshBasicMaterial({
+            color: 0x111111,
+            transparent: true,
+            opacity: 0.18 + Math.random() * 0.15,
+            depthWrite: false,
+          })
+        );
+        smoke.position.set(
+          (Math.random() - 0.5) * 0.6 * scale,
+          (1.5 + Math.random() * 1.5) * scale,
+          (Math.random() - 0.5) * 0.6 * scale
+        );
+        smoke.userData.phase = Math.random() * Math.PI * 2;
+        emitter.add(smoke);
+        flames.push(smoke); // reuse same animation list
+      }
+
+      // Warm flickering point light
+      const fireLight = new THREE.PointLight(0xff5500, 4.0, 14);
+      fireLight.position.set(0, 0.8 * scale, 0);
+      emitter.add(fireLight);
+
+      scene.add(emitter);
+      return { flames, fireLight };
+    }
+
+    // Engine fire (world approx: -3, 0.3, -9.5) and fuselage fire (1.5, 0.4, -15)
+    const fire1 = makeFireEmitter(-3,  0.3,  -9.5, 1.0);  // broken engine
+    const fire2 = makeFireEmitter( 1.5, 0.4, -15.0, 1.4);  // mid-fuselage
+    const allFires = [fire1, fire2];
+    // ════════════════════════════════════════════════
+
+    const cave = new THREE.Group();
+
+    // ── Rock materials ────────────────────────────────
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: 0x3d3028,      // dark brown-grey sandstone
+      roughness: 1.0,
+      metalness: 0.0,
+    });
+    const caveInnerMat = new THREE.MeshStandardMaterial({
+      color: 0x0d0a08,      // near-black void inside
+      roughness: 1.0,
+      metalness: 0.0,
+    });
+
+    // ── Main cliff face (wide rock wall) ─────────────
+    const cliffFace = new THREE.Mesh(
+      new THREE.BoxGeometry(28, 18, 6),
+      rockMat
+    );
+    cliffFace.position.set(0, 9, 0);
+    cliffFace.castShadow = true;
+    cliffFace.receiveShadow = true;
+    cave.add(cliffFace);
+
+    // ── Cave opening — dark box punched into the cliff ─
+    // (placed in front of cliff, slightly inset, to look like a void)
+    const opening = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 6, 7),
+      caveInnerMat
+    );
+    opening.position.set(0, 3.2, 0.5);  // centred, ground level
+    cave.add(opening);
+
+    // ── Arch framing stones (top + sides of entrance) ─
+    // Top arch block
+    const archTop = new THREE.Mesh(
+      new THREE.BoxGeometry(6.4, 1.8, 6.5),
+      rockMat
+    );
+    archTop.position.set(0, 6.9, 0.4);
+    archTop.castShadow = true;
+    cave.add(archTop);
+
+    // Left pillar
+    const pillarL = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 6.2, 6.4),
+      rockMat
+    );
+    pillarL.position.set(-3.4, 3.1, 0.4);
+    pillarL.castShadow = true;
+    cave.add(pillarL);
+
+    // Right pillar
+    const pillarR = pillarL.clone();
+    pillarR.position.set(3.4, 3.1, 0.4);
+    cave.add(pillarR);
+
+    // ── Scattered boulders around the entrance ─────────
+    const boulderData = [
+      { pos: [-9,  1.2, 3],  s: [3.5, 2.5, 3],   ry: 0.4  },
+      { pos: [ 8,  0.8, 4],  s: [2.8, 1.8, 2.5],  ry: -0.3 },
+      { pos: [-6,  0.5, 6],  s: [1.8, 1.2, 2.0],  ry: 1.1  },
+      { pos: [ 5,  0.4, 7],  s: [1.5, 1.0, 1.5],  ry: 0.7  },
+      { pos: [-12, 1.5, 1],  s: [4.0, 3.0, 3.5],  ry: 0.2  },
+      { pos: [ 11, 1.0, 2],  s: [3.0, 2.0, 2.8],  ry: -0.8 },
+      { pos: [ 2,  0.3, 9],  s: [1.2, 0.8, 1.4],  ry: 0.5  },
+      { pos: [-3,  0.4, 8],  s: [1.4, 0.9, 1.2],  ry: -0.6 },
+    ];
+
+    boulderData.forEach(({ pos, s, ry }) => {
+      // Use DodecahedronGeometry for irregular rock silhouettes
+      const boulder = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(1, 0),
+        rockMat
+      );
+      boulder.scale.set(s[0], s[1], s[2]);
+      boulder.position.set(pos[0], pos[1] - 0.6, pos[2]);
+      boulder.rotation.y = ry;
+      boulder.rotation.x = (Math.random() - 0.5) * 0.3;
+      boulder.castShadow  = true;
+      boulder.receiveShadow = true;
+      cave.add(boulder);
+    });
+
+    // ── Rocky ground rubble (small stones near entrance) ─
+    for (let i = 0; i < 20; i++) {
+      const rubble = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.25 + Math.random() * 0.35, 0),
+        rockMat
+      );
+      rubble.position.set(
+        (Math.random() - 0.5) * 18,
+        0,
+        Math.random() * 10
+      );
+      rubble.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+      rubble.castShadow = true;
+      cave.add(rubble);
+    }
+
+    // ── Cave Interior ──────────────────────────────────
+    // All coords are LOCAL to the cave group (world offset applied by cave.position).
+    // The entrance opening is at local z ≈ 0, so the tunnel runs in -Z direction.
+    // Opening is 5 wide (x: -2.5 to 2.5) and 6 tall.
+
+    const TUNNEL_DEPTH = 22;  // how far back the cave goes
+    const TUNNEL_W     = 5.0; // matches entrance opening width
+    const TUNNEL_H     = 6.0;
+
+    const interiorRockMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2018, roughness: 1.0, metalness: 0.0,
+    });
+    const wetRockMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1510, roughness: 0.9, metalness: 0.05,
+    });
+
+    // Left interior wall
+    const intWallL = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, TUNNEL_H, TUNNEL_DEPTH),
+      interiorRockMat
+    );
+    intWallL.position.set(-(TUNNEL_W / 2 + 0.6), TUNNEL_H / 2, -(TUNNEL_DEPTH / 2));
+    intWallL.castShadow = true; intWallL.receiveShadow = true;
+    cave.add(intWallL);
+
+    // Right interior wall
+    const intWallR = intWallL.clone();
+    intWallR.position.set((TUNNEL_W / 2 + 0.6), TUNNEL_H / 2, -(TUNNEL_DEPTH / 2));
+    cave.add(intWallR);
+
+    // Ceiling
+    const intCeiling = new THREE.Mesh(
+      new THREE.BoxGeometry(TUNNEL_W + 2.4, 1.5, TUNNEL_DEPTH),
+      interiorRockMat
+    );
+    intCeiling.position.set(0, TUNNEL_H + 0.75, -(TUNNEL_DEPTH / 2));
+    intCeiling.receiveShadow = true;
+    cave.add(intCeiling);
+
+    // Back wall
+    const intBackWall = new THREE.Mesh(
+      new THREE.BoxGeometry(TUNNEL_W + 2.4, TUNNEL_H + 1.5, 1.5),
+      wetRockMat
+    );
+    intBackWall.position.set(0, TUNNEL_H / 2, -TUNNEL_DEPTH);
+    intBackWall.castShadow = true; intBackWall.receiveShadow = true;
+    cave.add(intBackWall);
+
+    // Floor inside (dark sandy rock)
+    const intFloor = new THREE.Mesh(
+      new THREE.BoxGeometry(TUNNEL_W + 2.4, 0.4, TUNNEL_DEPTH),
+      wetRockMat
+    );
+    intFloor.position.set(0, 0.06, -(TUNNEL_DEPTH / 2)); // raised above ground to stop Z-fighting
+    intFloor.receiveShadow = true;
+    cave.add(intFloor);
+
+    // Stalactites hanging from ceiling (varied sizes)
+    const stalData = [
+      [0.4, 1.4, -4], [-0.8, 1.8, -7], [1.0, 1.2, -10],
+      [-0.5, 2.0, -13], [0.7, 1.5, -17], [-1.0, 1.0, -19],
+    ];
+    stalData.forEach(([sx, sh, sz]) => {
+      const stal = new THREE.Mesh(
+        new THREE.ConeGeometry(0.12, sh, 6),
+        interiorRockMat
+      );
+      stal.rotation.x = Math.PI; // point downward
+      stal.position.set(sx, TUNNEL_H - sh / 2, sz);
+      cave.add(stal);
+    });
+
+    // Stalagmites rising from floor
+    const stagData = [
+      [-1.5, 0.8, -5], [1.8, 1.0, -9], [-1.2, 0.7, -14],
+      [1.5, 0.9, -18],
+    ];
+    stagData.forEach(([sx, sh, sz]) => {
+      const stag = new THREE.Mesh(
+        new THREE.ConeGeometry(0.1, sh, 6),
+        interiorRockMat
+      );
+      stag.position.set(sx, sh / 2, sz);
+      stag.castShadow = true;
+      cave.add(stag);
+    });
+
+    // Scattered interior rocks
+    [[1.8, 0.3, -6], [-1.6, 0.25, -11], [0.9, 0.2, -16]].forEach(([rx, ry, rz]) => {
+      const r = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.4, 0), interiorRockMat
+      );
+      r.position.set(rx, ry, rz);
+      r.rotation.set(Math.random(), Math.random(), Math.random());
+      r.castShadow = true;
+      cave.add(r);
+    });
+
+    // Eerie glowing light deep inside the cave (blue-green, horror tone)
+    const caveGlow = new THREE.PointLight(0x00ffaa, 1.8, 18);
+    caveGlow.position.set(0, 2, -TUNNEL_DEPTH + 4);
+    cave.add(caveGlow);
+
+    // Dim orange torch near the entrance interior (feels like someone was here)
+    const torchLight = new THREE.PointLight(0xff6600, 1.2, 10);
+    torchLight.position.set(-1.5, 3, -3);
+    cave.add(torchLight);
+
+    // ── Gem — glowing crystal at the back of the cave ──────
+    const gemMat = new THREE.MeshStandardMaterial({
+      color: 0x00ffcc,
+      emissive: 0x00cc99,
+      emissiveIntensity: 1.2,
+      roughness: 0.1,
+      metalness: 0.8,
+      transparent: true,
+      opacity: 0.88,
+    });
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), gemMat);
+    gem.position.set(0, 1.1, -TUNNEL_DEPTH + 2.5); // hovering near back wall
+    cave.add(gem);
+
+    // Gem glow light
+    const gemLight = new THREE.PointLight(0x00ffcc, 2.5, 8);
+    gemLight.position.copy(gem.position);
+    cave.add(gemLight);
+
+    // Store gem ref for animation (world position = cave offset + local)
+    const gemWorldGroup = { gem, gemLight };
+
+    // ── Position the whole cave group ─────────────────
+    // ~80 units in front of the crash site (which is at z = -12)
+    cave.position.set(4, 0, -90);
+    scene.add(cave);
+
+    // ════════════════════════════════════════════════
+    // CACTUSES
+    // ════════════════════════════════════════════════
+
+    const cactusMat = new THREE.MeshStandardMaterial({
+      color: 0x2d6a2d,
+      roughness: 0.9,
+      metalness: 0.0,
+    });
+
+    function makeCactus(x, z, height) {
+      const group = new THREE.Group();
+
+      // Main trunk
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.22, height, 7),
+        cactusMat
+      );
+      trunk.position.y = height / 2;
+      trunk.castShadow = true;
+      group.add(trunk);
+
+      // Left arm
+      const armHeight = height * 0.38;
+      const armL = new THREE.Group();
+      const armLStem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.12, armHeight * 0.6, 6),
+        cactusMat
+      );
+      armLStem.rotation.z = Math.PI / 2.2;
+      armLStem.position.set(-armHeight * 0.28, 0, 0);
+      armLStem.castShadow = true;
+      armL.add(armLStem);
+      const armLUp = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.11, armHeight * 0.55, 6),
+        cactusMat
+      );
+      armLUp.position.set(-armHeight * 0.52, armHeight * 0.28, 0);
+      armLUp.castShadow = true;
+      armL.add(armLUp);
+      armL.position.y = height * 0.55;
+      group.add(armL);
+
+      // Right arm (mirrored, slightly higher)
+      const armR = armL.clone();
+      armR.scale.x = -1;
+      armR.position.y = height * 0.65;
+      group.add(armR);
+
+      group.position.set(x, 0, z);
+      group.rotation.y = Math.random() * Math.PI * 2;
+      return group;
+    }
+
+    // Scatter cactuses across the desert.
+    // Defined manually to avoid spawning on the plane wreck or path centre.
+    const cactusSpots = [
+      // original 20
+      [ 18, -10, 3.2], [-20,  -8, 2.8], [ 30, -25, 3.5],
+      [-15, -30, 2.5], [ 12, -42, 3.0], [-28, -38, 3.8],
+      [ 22, -55, 2.7], [ -8, -60, 3.3], [ 35, -48, 2.9],
+      [-35, -50, 3.6], [ 10, -70, 3.1], [-18, -72, 2.6],
+      [ 25, -78, 3.4], [-30, -20, 3.0], [ 40, -15, 2.8],
+      [-40,  -5, 3.5], [ 50, -35, 2.9], [-45, -65, 3.2],
+      [ 15, -85, 2.7], [-22, -82, 3.0],
+      // behind spawn (positive Z)
+      [  8,  12, 2.9], [-14,  18, 3.1], [ 25,   8, 2.6],
+      [-30,  15, 3.4], [ 45,  22, 2.8], [-50,  10, 3.0],
+      [ 60,   5, 3.3], [-62,  25, 2.7], [ 35,  30, 3.5],
+      [-38,  35, 2.9], [ 18,  40, 3.2], [-20,  45, 2.5],
+      // far left flank
+      [-55, -15, 3.1], [-65, -30, 2.8], [-70, -10, 3.6],
+      [-75, -45, 2.9], [-60, -55, 3.3], [-80, -25, 2.7],
+      [-55, -70, 3.0], [-72, -68, 3.5], [-48, -85, 2.6],
+      [-65, -80, 3.2], [-85,  -5, 2.9], [-90, -40, 3.4],
+      // far right flank
+      [ 55, -12, 3.0], [ 65, -28, 2.7], [ 70,  -5, 3.4],
+      [ 75, -50, 3.1], [ 60, -60, 2.8], [ 80, -20, 3.6],
+      [ 55, -75, 2.9], [ 72, -72, 3.3], [ 48, -88, 2.6],
+      [ 65, -85, 3.0], [ 85,  -8, 2.7], [ 90, -42, 3.5],
+      // deep desert (far negative Z)
+      [ 10,-100, 3.2], [-25,-100, 2.8], [ 40,-105, 3.5],
+      [-50,-105, 2.9], [ 20,-112, 3.1], [-10,-115, 2.7],
+      [ 55,-110, 3.0], [-60,-108, 3.4], [ 30,-120, 2.6],
+      [-35,-118, 3.3], [  5,-125, 2.8], [ 70,-115, 3.1],
+      // scattered mid-map fill
+      [-10,  -5, 2.5], [ 45, -62, 3.3], [-42, -32, 2.9],
+      [ 32,  -3, 3.0], [-55, -42, 2.7], [ 58, -40, 3.6],
+      [-25, -92, 3.2], [ 28, -95, 2.8], [-15, -48, 3.1],
+      [ 52,  15, 2.9], [-68,   2, 3.4], [ 78, -65, 2.6],
+    ];
+
+    cactusSpots.forEach(([x, z, h]) => {
+      scene.add(makeCactus(x, z, h));
+    });
+
+    // ════════════════════════════════════════════════
+    // ABANDONED SHRINE — behind the crashed plane
+    // ════════════════════════════════════════════════
+    let shrineGroup;
+    let shrinePieces    = [];
+    let shrineBreaking  = false;
+    let shrineFading    = false;
+    let shrineSettleTimer = -1;
+    let shrineHoleMesh;
+    let elevatorMesh;
+    let elevatorRising  = false;
+    const ELEV_START  = -7;
+    const ELEV_TARGET = 1.0;
+    const ELEV_SPEED  = 1.8;
+    {
+      const stoneMat  = new THREE.MeshStandardMaterial({ color: 0x58504a, roughness: 0.95, metalness: 0.05 });
+      const darkMat   = new THREE.MeshStandardMaterial({ color: 0x38302a, roughness: 0.98, metalness: 0.00 });
+      const mossyMat  = new THREE.MeshStandardMaterial({ color: 0x48503c, roughness: 0.96, metalness: 0.00 });
+      const candleMat = new THREE.MeshStandardMaterial({ color: 0xeecc88 });
+      const flameMat  = new THREE.MeshStandardMaterial({ color: 0xff8800, emissive: 0xff5500, emissiveIntensity: 3.5, transparent: true, opacity: 0.9 });
+
+      const shrine = new THREE.Group();
+
+      // ── Tiered stone platform ────────────────────────────
+      const slab1 = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.20, 6.4), stoneMat);
+      slab1.position.y = 0.10;
+      shrine.add(slab1);
+      const slab2 = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.16, 4.8), darkMat);
+      slab2.position.y = 0.28;
+      shrine.add(slab2);
+      const slab3 = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.14, 3.2), stoneMat);
+      slab3.position.y = 0.42;
+      shrine.add(slab3);
+
+      // ── Three upright pillars + one fallen ──────────────
+      const pillarGeo = new THREE.CylinderGeometry(0.21, 0.27, 2.6, 8);
+      const capGeo    = new THREE.BoxGeometry(0.58, 0.16, 0.58);
+      [[1.7, -1.7], [-1.7, 1.7], [1.7, 1.7]].forEach(([px, pz]) => {
+        const p = new THREE.Mesh(pillarGeo, stoneMat);
+        p.position.set(px, 1.72, pz);
+        shrine.add(p);
+        const cap = new THREE.Mesh(capGeo, darkMat);
+        cap.position.set(px, 3.10, pz);
+        shrine.add(cap);
+      });
+      // Fallen pillar (front-left)
+      const fallen = new THREE.Mesh(pillarGeo, stoneMat);
+      fallen.rotation.z = Math.PI / 2;
+      fallen.position.set(-3.0, 0.22, -1.7);
+      shrine.add(fallen);
+      // Broken cap piece on ground
+      const brokenCap = new THREE.Mesh(capGeo, darkMat);
+      brokenCap.rotation.set(0.4, 0.6, 0.3);
+      brokenCap.position.set(-3.9, 0.12, -1.5);
+      shrine.add(brokenCap);
+
+      // ── Stone arch (entry frame) ─────────────────────────
+      const archPost = new THREE.BoxGeometry(0.32, 2.5, 0.32);
+      const archL = new THREE.Mesh(archPost, mossyMat);
+      archL.position.set(-1.2, 1.25, -2.0);
+      shrine.add(archL);
+      const archR = new THREE.Mesh(archPost, mossyMat);
+      archR.position.set( 1.2, 1.25, -2.0);
+      shrine.add(archR);
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(2.88, 0.30, 0.34), mossyMat);
+      lintel.position.set(0, 2.65, -2.0);
+      shrine.add(lintel);
+      // Cracked keystone at top-center
+      const keystone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.18, 0), darkMat);
+      keystone.position.set(0, 2.85, -2.0);
+      shrine.add(keystone);
+
+      // ── Central altar ────────────────────────────────────
+      const altarBody = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.96, 1.0), darkMat);
+      altarBody.position.set(0, 0.90, 0.1);
+      shrine.add(altarBody);
+      const altarTop = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.13, 1.14), stoneMat);
+      altarTop.position.set(0, 1.40, 0.1);
+      shrine.add(altarTop);
+
+      // ── Idol on altar ─────────────────────────────────────
+      const idolBase = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.08, 6), darkMat);
+      idolBase.position.set(0, 1.50, 0.1);
+      shrine.add(idolBase);
+      const idolBody = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.40, 6), darkMat);
+      idolBody.position.set(0, 1.74, 0.1);
+      shrine.add(idolBody);
+      const idolShoulders = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.10, 0.13), darkMat);
+      idolShoulders.position.set(0, 1.95, 0.1);
+      shrine.add(idolShoulders);
+      const idolHead = new THREE.Mesh(new THREE.DodecahedronGeometry(0.13, 0), darkMat);
+      idolHead.position.set(0, 2.12, 0.1);
+      shrine.add(idolHead);
+      // Two hollow eye sockets (dark spheres, slightly recessed)
+      [-0.045, 0.045].forEach(ex => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.030, 5, 4), stoneMat);
+        eye.position.set(ex, 2.14, 0.21);
+        shrine.add(eye);
+      });
+
+      // ── Candles on altar ─────────────────────────────────
+      const candleData = [[-0.52, 0.1], [0.52, 0.1], [0, -0.28]];
+      candleData.forEach(([cx, cz]) => {
+        const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.030, 0.18, 6), candleMat);
+        candle.position.set(cx, 1.56, cz);
+        shrine.add(candle);
+        const flame = new THREE.Mesh(new THREE.SphereGeometry(0.024, 5, 4), flameMat);
+        flame.position.set(cx, 1.66, cz);
+        shrine.add(flame);
+      });
+      // Warm candle light
+      const shrineCandleLight = new THREE.PointLight(0xff9933, 1.4, 7);
+      shrineCandleLight.position.set(0, 2.0, 0.1);
+      shrine.add(shrineCandleLight);
+
+      // ── Scattered rubble ─────────────────────────────────
+      const rubGeo = [new THREE.DodecahedronGeometry(0.22, 0), new THREE.DodecahedronGeometry(0.14, 0)];
+      [[2.6, 0.14, 2.0, 0.3, 0.8], [-2.8, 0.13, 1.0, 1.1, 0.3],
+       [2.0, 0.12, -2.4, 0.8, 1.6], [-1.8, 0.10, 2.6, 0.2, 1.0],
+       [3.0, 0.11, -1.6, 1.4, 0.5], [-3.2, 0.12, -0.8, 0.6, 1.2]].forEach(([rx, ry, rz, rX, rY], i) => {
+        const rub = new THREE.Mesh(rubGeo[i % 2], stoneMat);
+        rub.position.set(rx, ry, rz);
+        rub.rotation.set(rX, rY, 0);
+        shrine.add(rub);
+      });
+
+      // ── Runic carvings (dark flat tiles on platform) ─────
+      const runeGeo = new THREE.BoxGeometry(0.8, 0.02, 0.8);
+      [[1.2, 0.50, 1.2], [-1.2, 0.50, 1.2], [0, 0.50, -1.4]].forEach(([rx, ry, rz]) => {
+        const rune = new THREE.Mesh(runeGeo, darkMat);
+        rune.position.set(rx, ry, rz);
+        shrine.add(rune);
+      });
+
+      shrine.position.set(-18, 0, -55);
+      scene.add(shrine);
+      shrineGroup = shrine;   // save ref for breaking
+
+      // Animate candle flicker in game loop via closure
+      window._shrineCandleLight = shrineCandleLight;
+    }
+
+    // ════════════════════════════════════════════════
+    // GEM OFFERING ALTAR
+    // ════════════════════════════════════════════════
+    const offerAltarPos = new THREE.Vector3(-18, 0, -51);
+    let   offerGlowLight, offeredGemMesh;
+    // ── Elevator platform (starts below ground, rises on shrine break) ──
+    {
+      const elevMat = new THREE.MeshStandardMaterial({ color: 0x1a1414, roughness: 0.88, metalness: 0.15 });
+      const elevPlatform = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.28, 2.6), elevMat);
+      elevatorMesh = elevPlatform;
+      elevatorMesh.position.set(-18, ELEV_START, -55);
+      scene.add(elevatorMesh);
+
+      // Fixed shaft guide pillars (span from below ground to above target)
+      const shaftMat = new THREE.MeshStandardMaterial({ color: 0x181010, roughness: 0.95, metalness: 0.15 });
+      const shaftHeight = ELEV_TARGET - ELEV_START + 2;
+      const shaftMidY   = ELEV_START + shaftHeight / 2;
+      [[-1.15, -1.15], [1.15, -1.15], [-1.15, 1.15], [1.15, 1.15]].forEach(([ox, oz]) => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, shaftHeight, 0.14), shaftMat);
+        post.position.set(-18 + ox, shaftMidY, -55 + oz);
+        scene.add(post);
+      });
+    }
+    let   altarBreaking  = false;
+    let   altarPieces    = [];   // world-space pieces with physics
+    let   altarGroup;            // reference so we can break it
+    {
+      const sMat = new THREE.MeshStandardMaterial({ color: 0x48403a, roughness: 0.94, metalness: 0.06 });
+      const dMat = new THREE.MeshStandardMaterial({ color: 0x28201a, roughness: 0.98, metalness: 0.00 });
+      const receptacleMat = new THREE.MeshStandardMaterial({
+        color: 0x00ffcc, emissive: 0x00cc99, emissiveIntensity: 1.2,
+        roughness: 0.1, metalness: 0.8,
+      });
+      const altarG = new THREE.Group();
+
+      // Tiered circular base
+      [{ r: 1.05, h: 0.18, y: 0.09, m: sMat },
+       { r: 0.78, h: 0.15, y: 0.26, m: dMat },
+       { r: 0.55, h: 0.13, y: 0.40, m: sMat }].forEach(({ r, h, y, m }) => {
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.05, h, 14), m);
+        ring.position.y = y;
+        altarG.add(ring);
+      });
+      // Pedestal shaft + cap
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.30, 0.72, 10), dMat);
+      shaft.position.y = 0.83;
+      altarG.add(shaft);
+      const topCap = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.28, 0.16, 12), sMat);
+      topCap.position.y = 1.27;
+      altarG.add(topCap);
+      // Glowing receptacle ring
+      const receptacle = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 7, 20), receptacleMat);
+      receptacle.rotation.x = Math.PI / 2;
+      receptacle.position.y = 1.37;
+      altarG.add(receptacle);
+      // Four corner spires
+      [[-0.36, -0.36], [0.36, -0.36], [-0.36, 0.36], [0.36, 0.36]].forEach(([sx, sz]) => {
+        const spire = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.30, 6), dMat);
+        spire.position.set(sx, 1.50, sz);
+        altarG.add(spire);
+      });
+      // Glow light (dim before gem, bright after)
+      offerGlowLight = new THREE.PointLight(0x00ffcc, 0.7, 6);
+      offerGlowLight.position.y = 1.6;
+      altarG.add(offerGlowLight);
+      // Placed gem mesh (hidden until E is pressed)
+      offeredGemMesh = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.14, 0),
+        new THREE.MeshStandardMaterial({
+          color: 0x00ffcc, emissive: 0x00cc99, emissiveIntensity: 3.0,
+          roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.95,
+        })
+      );
+      offeredGemMesh.position.y = 1.50;
+      offeredGemMesh.visible = false;
+      altarG.add(offeredGemMesh);
+
+      altarG.position.copy(offerAltarPos);
+      scene.add(altarG);
+      altarGroup = altarG;   // save ref for breaking
+    }
+
+    // ════════════════════════════════════════════════
+    // ANIMALS — Scorpions (scatter when player approaches)
+    // ════════════════════════════════════════════════
+
+    function makeScorpion(x, z) {
+      const g    = new THREE.Group();
+      const sMat = new THREE.MeshStandardMaterial({ color: 0x1e0e04, roughness: 0.9 });
+
+      // Main body
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), sMat);
+      body.scale.set(1.5, 0.65, 1.1);
+      body.position.y = 0.065;
+      g.add(body);
+
+      // Head
+      const sHead = new THREE.Mesh(new THREE.SphereGeometry(0.063, 6, 4), sMat);
+      sHead.position.set(0, 0.065, -0.14);
+      g.add(sHead);
+
+      // Claws
+      [-0.13, 0.13].forEach(cx => {
+        const claw = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.025, 0.045), sMat);
+        claw.position.set(cx, 0.06, -0.22);
+        g.add(claw);
+      });
+
+      // Tail segments curling upward
+      [[0, 0.11, 0.08], [0, 0.18, 0.13], [0, 0.24, 0.16]].forEach(([tx, ty, tz]) => {
+        const seg = new THREE.Mesh(new THREE.SphereGeometry(0.036, 5, 4), sMat);
+        seg.position.set(tx, ty, tz);
+        g.add(seg);
+      });
+
+      // Stinger
+      const stinger = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.055, 5), sMat);
+      stinger.position.set(0, 0.28, 0.18);
+      stinger.rotation.x = -1.0;
+      g.add(stinger);
+
+      // 8 legs
+      for (let i = 0; i < 4; i++) {
+        [-1, 1].forEach(side => {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.012, 0.012), sMat);
+          leg.position.set(side * 0.13, 0.04, -0.04 + i * 0.04);
+          leg.rotation.z = side * 0.45;
+          g.add(leg);
+        });
+      }
+
+      g.position.set(x, 0, z);
+      g.rotation.y = Math.random() * Math.PI * 2;
+      return g;
+    }
+
+    const scorpions = [
+      [-8, -20], [13, -35], [-16, -44], [19, -58],
+      [-6, -55], [ 9, -68], [-13, -78], [17, -30],
+    ].map(([x, z]) => { const s = makeScorpion(x, z); scene.add(s); return s; });
+
+    // ════════════════════════════════════════════════
+    // SNAKES — Deadly desert vipers (instant death on contact)
+    // ════════════════════════════════════════════════
+
+    function makeSnake(x, z) {
+      const g        = new THREE.Group();
+      const snakeMat = new THREE.MeshStandardMaterial({ color: 0x4a6618, roughness: 0.95 });
+      const headMat  = new THREE.MeshStandardMaterial({ color: 0x3a5010, roughness: 0.9  });
+
+      // Coiled body — spiral of flattened spheres
+      const numSegs = 12;
+      for (let i = 0; i < numSegs; i++) {
+        const angle = (i / numSegs) * Math.PI * 3.2;
+        const r     = 0.30 - i * 0.017;
+        const seg   = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(0.048 - i * 0.002, 0.022), 5, 4),
+          snakeMat
+        );
+        seg.scale.set(1.0, 0.5, 1.0);
+        seg.position.set(Math.cos(angle) * r, 0.03, Math.sin(angle) * r);
+        g.add(seg);
+      }
+
+      // Head — slightly raised and larger
+      const snakeHead = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.055, 0.11), headMat);
+      snakeHead.position.set(0.30, 0.08, 0);
+      g.add(snakeHead);
+
+      // Forked tongue — two tiny red strips (toggled visible for flicker)
+      const tongueMat = new THREE.MeshBasicMaterial({ color: 0xdd1100 });
+      [-0.025, 0.025].forEach(tx => {
+        const tongue = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.003, 0.034), tongueMat);
+        tongue.position.set(0.30 + tx * 0.4, 0.08, -0.072);
+        tongue.rotation.y = tx * 2.8;
+        tongue.userData.isTongue = true;
+        g.add(tongue);
+      });
+
+      // Faint danger glow
+      const snakeGlow = new THREE.PointLight(0xff2200, 0.5, 2.5);
+      snakeGlow.position.set(0.30, 0.18, 0);
+      g.add(snakeGlow);
+
+      g.position.set(x, 0, z);
+      g.rotation.y = Math.random() * Math.PI * 2;
+      g.userData.killRadius = 0.85;
+      return g;
+    }
+
+    const snakes = [
+      [-3, -26], [4, -41], [-2, -57], [5, -73], [1, -64],
+      [18, -52], [-14, -38],
+    ].map(([x, z]) => { const s = makeSnake(x, z); scene.add(s); return s; });
+
+    // ════════════════════════════════════════════════
+
+    const controls = new PointerLockControls(camera, renderer.domElement);
+    scene.add(controls.getObject()); // attach camera rig to scene
+
+    const overlay    = document.getElementById('overlay');
+    const crosshair  = document.getElementById('crosshair');
+
+    // Click anywhere on the overlay (or canvas) to lock pointer
+    overlay.addEventListener('click', () => controls.lock());
+
+    controls.addEventListener('lock', () => {
+      overlay.style.display   = 'none';
+      crosshair.style.display = 'block';
+    });
+
+    controls.addEventListener('unlock', () => {
+      overlay.style.display   = 'flex';
+      crosshair.style.display = 'none';
+    });
+
+    // ════════════════════════════════════════════════
+    // VIEWMODEL — First-person torch in right hand
+    // Uses a separate scene + camera rendered on top of
+    // the world so the torch never clips through walls.
+    // ════════════════════════════════════════════════
+
+    const vmScene  = new THREE.Scene();
+    const vmCamera = new THREE.PerspectiveCamera(
+      60, window.innerWidth / window.innerHeight, 0.01, 10
+    );
+    // Keep aspect in sync with window
+    window.addEventListener('resize', () => {
+      vmCamera.aspect = window.innerWidth / window.innerHeight;
+      vmCamera.updateProjectionMatrix();
+    });
+
+    // Warm ambient so the torch handle is lit by its own flame
+    vmScene.add(new THREE.AmbientLight(0x442211, 4.0));
+
+    // ── Torch group — lower-right of view ─────────────
+    const torchGroup = new THREE.Group();
+    const VM_BASE_X =  0.26;
+    const VM_BASE_Y = -0.34;
+    const VM_BASE_Z = -0.50;
+    torchGroup.position.set(VM_BASE_X, VM_BASE_Y, VM_BASE_Z);
+    torchGroup.rotation.z =  0.28;  // tilt handle inward toward player
+    torchGroup.rotation.x =  0.10;  // slight backward tilt — natural grip
+
+    // Handle — dark charred wood
+    const torchHandleMat = new THREE.MeshStandardMaterial({
+      color: 0x4a2c0e, roughness: 0.95, metalness: 0.0,
+    });
+    torchGroup.add(
+      new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.030, 0.38, 8), torchHandleMat)
+    );
+
+    // Small metal band near top of handle
+    const torchBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.029, 0.029, 0.025, 8),
+      new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.4, metalness: 0.9 })
+    );
+    torchBand.position.y = 0.155;
+    torchGroup.add(torchBand);
+
+    // Torch head — rag bundle soaked in pitch
+    const torchHead = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.030, 0.07, 8),
+      new THREE.MeshStandardMaterial({
+        color: 0x5c3312, roughness: 1.0,
+        emissive: 0x441100, emissiveIntensity: 0.6,
+      })
+    );
+    torchHead.position.y = 0.225;
+    torchGroup.add(torchHead);
+
+    // Flame cones — match the fire emitter style
+    const vmFlameColors = [0xff6600, 0xff3300, 0xffaa00, 0xffcc00, 0xff8800];
+    const vmFlames = [];
+    for (let i = 0; i < 6; i++) {
+      const h = 0.048 + Math.random() * 0.052;
+      const vmFlame = new THREE.Mesh(
+        new THREE.ConeGeometry(0.013 + Math.random() * 0.010, h, 5),
+        new THREE.MeshBasicMaterial({
+          color: vmFlameColors[i % vmFlameColors.length],
+          transparent: true,
+          opacity: 0.75 + Math.random() * 0.20,
+          depthWrite: false,
+        })
+      );
+      vmFlame.position.set(
+        (Math.random() - 0.5) * 0.022,
+        0.265 + h / 2,
+        (Math.random() - 0.5) * 0.022
+      );
+      vmFlame.userData.phase    = Math.random() * Math.PI * 2;
+      vmFlame.userData.freqY    = 10 + Math.random() * 15;
+      vmFlame.userData.freqSway =  6 + Math.random() * 10;
+      vmFlames.push(vmFlame);
+      torchGroup.add(vmFlame);
+    }
+
+    // Point light parented to torchGroup — illuminates the handle from above
+    const vmInnerLight = new THREE.PointLight(0xff7700, 2.5, 0.4);
+    vmInnerLight.position.y = 0.28;
+    torchGroup.add(vmInnerLight);
+
+    vmScene.add(torchGroup);
+
+    // ── Viewmodel gem — appears in left hand after collection ─
+    const vmGemGroup = new THREE.Group();
+    const vmGemMesh  = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.065, 0),
+      new THREE.MeshStandardMaterial({
+        color: 0x00ffcc, emissive: 0x00cc99, emissiveIntensity: 2.5,
+        roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.92,
+      })
+    );
+    vmGemGroup.add(vmGemMesh);
+    const vmGemLight = new THREE.PointLight(0x00ffcc, 1.6, 0.55);
+    vmGemGroup.add(vmGemLight);
+    const VM_GEM_X = -0.22;
+    const VM_GEM_Y = -0.30;
+    const VM_GEM_Z = -0.46;
+    vmGemGroup.position.set(VM_GEM_X, VM_GEM_Y, VM_GEM_Z);
+    vmGemGroup.visible = false;
+    vmScene.add(vmGemGroup);
+    // travels with the player and lights nearby sand / cave walls.
+    const torchWorldLight = new THREE.PointLight(0xff7722, 3.0, 14);
+    torchWorldLight.position.set(0.5, 0.2, -0.5);
+    controls.getObject().add(torchWorldLight);
+
+    // ════════════════════════════════════════════════
+    // STEP 7 — WASD Movement System
+    // ════════════════════════════════════════════════
+
+    // Key state map
+    const keys = {
+      forward:  false,  // W / ArrowUp
+      backward: false,  // S / ArrowDown
+      left:     false,  // A / ArrowLeft
+      right:    false,  // D / ArrowRight
+      sprint:   false,  // Shift
+    };
+
+    document.addEventListener('keydown', (e) => {
+      keys.sprint = e.shiftKey;   // always up-to-date
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp':    keys.forward  = true;  break;
+        case 'KeyS': case 'ArrowDown':  keys.backward = true;  break;
+        case 'KeyA': case 'ArrowLeft':  keys.left     = true;  break;
+        case 'KeyD': case 'ArrowRight': keys.right    = true;  break;
+        case 'Space':
+          if (controls.isLocked && isOnGround) {
+            verticalVelocity = JUMP_FORCE;
+            isOnGround = false;
+          }
+          e.preventDefault();
+          break;
+        case 'KeyE':
+          if (controls.isLocked && gemCollected && !gemOffered) {
+            const _rig = controls.getObject();
+            const _edx = _rig.position.x - offerAltarPos.x;
+            const _edz = _rig.position.z - offerAltarPos.z;
+            if (Math.sqrt(_edx * _edx + _edz * _edz) < 2.2) {
+              gemOffered = true;
+              vmGemGroup.visible     = false;       // leaves hand
+              offeredGemMesh.visible = true;         // appears on altar
+              offerGlowLight.intensity = 5.0;
+              altarHintEl.style.display = 'none';
+              // Break altar after a short beat
+              setTimeout(() => triggerAltarBreak(), 700);
+              // Confirmation message
+              altarOfferedEl.style.animation = 'none';
+              altarOfferedEl.offsetHeight;
+              altarOfferedEl.style.display   = 'block';
+              altarOfferedEl.style.animation = 'offerFade 4s forwards';
+              setTimeout(() => { altarOfferedEl.style.display = 'none'; }, 4000);
+            }
+          }
+          break;
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      keys.sprint = e.shiftKey;   // clears when Shift released
+      switch (e.code) {
+        case 'KeyW': case 'ArrowUp':    keys.forward  = false; break;
+        case 'KeyS': case 'ArrowDown':  keys.backward = false; break;
+        case 'KeyA': case 'ArrowLeft':  keys.left     = false; break;
+        case 'KeyD': case 'ArrowRight': keys.right    = false; break;
+      }
+    });
+
+    const SPEED          = 0.5;   // player base movement speed
+    const SPRINT_MULT    = 3.0;   // sprint multiplier when Shift held
+    const DAMPING        = 10.0;  // higher = snappier stop
+    const EYE_HEIGHT     = 1.7;   // player eye level (ground)
+    const GRAVITY        = -18;   // downward acceleration
+    const JUMP_FORCE     =  7;    // upward velocity on jump
+    const velocity       = new THREE.Vector3();
+    const direction      = new THREE.Vector3();
+    let   verticalVelocity = 0;
+    let   isOnGround       = true;
+
+    // ════════════════════════════════════════════════
+    // STEP 8 — Collision Detection
+    // ════════════════════════════════════════════════
+
+    // Build world-space bounding boxes for solid objects.
+    // We use a cylinder-radius approach for the player and
+    // axis-aligned boxes for obstacles — simple but effective.
+
+    const PLAYER_RADIUS = 0.6; // collision capsule radius
+
+    // Airplane AABB — small rectangle around the fuselage centre only.
+    const planeBBox = new THREE.Box3(
+      new THREE.Vector3(-2, -3, -16),
+      new THREE.Vector3( 2,  4,  -8)
+    );
+
+    // Cave collision — two manual boxes flanking the entrance gap.
+    // Cave group is at world (4, 0, -90). Cliff face is 28 wide × 6 deep.
+    // Entrance opening is 5 units wide centred at x=4 → gap x: 1.5 → 6.5.
+    // Left solid wall (x: -12 → 1.5) and right solid wall (x: 6.5 → 20)
+    // cover only the actual rock, leaving the doorway completely clear.
+    const caveWallLeft = new THREE.Box3(
+      new THREE.Vector3(-12, -1, -94),
+      new THREE.Vector3(1.5,  20, -86)
+    );
+    const caveWallRight = new THREE.Box3(
+      new THREE.Vector3(6.5,  -1, -94),
+      new THREE.Vector3(20,   20, -86)
+    );
+
+    // Collect all colliders
+    const colliders = [planeBBox, caveWallLeft, caveWallRight];
+
+    /**
+     * Returns true if a point (x, z) at player radius overlaps any collider.
+     * We only test X/Z (no vertical collision — ground is flat).
+     */
+    function wouldCollide(x, z) {
+      for (const box of colliders) {
+        if (
+          x + PLAYER_RADIUS > box.min.x &&
+          x - PLAYER_RADIUS < box.max.x &&
+          z + PLAYER_RADIUS > box.min.z &&
+          z - PLAYER_RADIUS < box.max.z
+        ) return true;
+      }
+      return false;
+    }
+
+    // ════════════════════════════════════════════════
+    // STEP 9 — Full Game Loop (delta-timed)
+    // ════════════════════════════════════════════════
+
+    const clock = new THREE.Clock();
+
+    function gameLoop() {
+      requestAnimationFrame(gameLoop);
+
+      const delta = Math.min(clock.getDelta(), 0.05); // cap at 50 ms
+      const t     = clock.getElapsedTime();            // total time for animation
+
+      // ── Animate fire emitters ─────────────────────────────
+      allFires.forEach(({ flames, fireLight }) => {
+        flames.forEach((f, i) => {
+          const p = f.userData.phase ?? 0;
+          const fy = f.userData.freqY   ?? 4;
+          const fs = f.userData.freqSway ?? 2;
+          // Scale flicker
+          const sy = 0.75 + Math.sin(t * fy + p) * 0.35;
+          const sx = 0.6  + Math.sin(t * fs + p + 1) * 0.25;
+          f.scale.set(sx, sy, sx);
+          // Gentle horizontal sway
+          f.rotation.z = Math.sin(t * fs * 0.7 + p) * 0.15;
+        });
+        // Flicker point light: two sine waves at prime frequencies
+        fireLight.intensity = 3.5
+          + Math.sin(t * 7.3)  * 1.2
+          + Math.sin(t * 13.7) * 0.6;
+      });
+
+      // ── Animate gem ──────────────────────────────
+      if (!gemCollected) {
+        gemWorldGroup.gem.rotation.y += delta * 1.2;
+        gemWorldGroup.gem.rotation.x = Math.sin(t * 0.8) * 0.3;
+        gemWorldGroup.gem.position.y = 1.1 + Math.sin(t * 1.4) * 0.12;
+        gemWorldGroup.gemLight.intensity = 2.2 + Math.sin(t * 3.1) * 0.8;
+        gemWorldGroup.gemLight.position.y = gemWorldGroup.gem.position.y;
+      }
+
+      // ── Shrine candle flicker ─────────────────────────
+      if (window._shrineCandleLight) {
+        window._shrineCandleLight.intensity = 1.2 + Math.sin(t * 7.3) * 0.35 + Math.sin(t * 13.9) * 0.15;
+      }
+
+      // ── Snake tongue flicker (always runs, even while paused) ─
+      snakes.forEach(snake => {
+        snake.children.forEach(c => {
+          if (c.userData.isTongue)
+            c.visible = Math.sin(t * 18 + snake.position.x) > -0.25;
+        });
+      });
+
+      // ── Movement (only when pointer is locked) ─────────
+      if (controls.isLocked) {
+
+        // ── Scorpion scatter ──────────────────────────────
+        {
+          const _px = controls.getObject().position.x;
+          const _pz = controls.getObject().position.z;
+          scorpions.forEach(sc => {
+            const dx = _px - sc.position.x;
+            const dz = _pz - sc.position.z;
+            const d  = Math.sqrt(dx * dx + dz * dz);
+            if (d < 7 && d > 0.2) {
+              const spd = 2.0 * delta;
+              sc.position.x -= (dx / d) * spd;
+              sc.position.z -= (dz / d) * spd;
+              sc.rotation.y  = Math.atan2(-dx, -dz);
+              sc.position.y  = Math.abs(Math.sin(t * 24)) * 0.013; // scurry bob
+            } else {
+              sc.position.y  = 0;
+            }
+          });
+        }
+
+        // ── Gem pickup ────────────────────────────────
+        if (!gemCollected) {
+          gem.getWorldPosition(_gemWorldPos);
+          const rig = controls.getObject();
+          const _gdx = rig.position.x - _gemWorldPos.x;
+          const _gdz = rig.position.z - _gemWorldPos.z;
+          if (Math.sqrt(_gdx * _gdx + _gdz * _gdz) < 1.4) {
+            gemCollected = true;
+            gem.visible        = false;
+            gemLight.intensity = 0;
+            vmGemGroup.visible = true;   // show in hand
+            gemPickupEl.style.animation = 'none';
+            gemPickupEl.offsetHeight;   // force reflow to restart animation
+            gemPickupEl.style.display   = 'block';
+            gemPickupEl.style.animation = 'gemFadeOut 3.2s forwards';
+            setTimeout(() => { gemPickupEl.style.display = 'none'; }, 3200);
+          }
+        }
+
+        // ── Snake proximity → death ───────────────────────
+        if (!isDead) {
+          const _px = controls.getObject().position.x;
+          const _pz = controls.getObject().position.z;
+          for (const snake of snakes) {
+            const dx = _px - snake.position.x;
+            const dz = _pz - snake.position.z;
+            if (Math.sqrt(dx * dx + dz * dz) < snake.userData.killRadius) {
+              triggerDeath();
+              break;
+            }
+          }
+        }
+
+        // Apply damping to bleed off velocity smoothly
+        velocity.x -= velocity.x * DAMPING * delta;
+        velocity.z -= velocity.z * DAMPING * delta;
+
+        // Build desired direction from key state
+        direction.z = Number(keys.forward)  - Number(keys.backward);
+        direction.x = Number(keys.right)    - Number(keys.left);
+        direction.normalize(); // consistent speed on diagonals
+
+        // ── Stamina drain / regen ─────────────────────
+        const isMovingNow = keys.forward || keys.backward || keys.left || keys.right;
+        const wantsToSprint = keys.sprint && isMovingNow;
+        if (wantsToSprint && !staminaExhausted) {
+          stamina = Math.max(0, stamina - delta);
+          if (stamina === 0) staminaExhausted = true;
+        } else {
+          stamina = Math.min(MAX_STAMINA, stamina + delta * 0.6);
+          if (staminaExhausted && stamina >= 5) staminaExhausted = false;
+        }
+        const isSprinting = wantsToSprint && !staminaExhausted;
+        // Update stamina bar
+        const pct = stamina / MAX_STAMINA;
+        staminaFill.style.width = (pct * 100) + '%';
+        staminaFill.style.background = stamina < 5
+          ? 'linear-gradient(90deg,#ff3300,#ff6600)'
+          : 'linear-gradient(90deg,#ffaa00,#ffe566)';
+        staminaWrap.style.display = (stamina < MAX_STAMINA) ? 'flex' : 'none';
+
+        if (keys.forward  || keys.backward) velocity.z -= direction.z * SPEED * (isSprinting ? SPRINT_MULT : 1) * delta;
+        if (keys.left     || keys.right)    velocity.x -= direction.x * SPEED * (isSprinting ? SPRINT_MULT : 1) * delta;
+
+        // ── Collision-aware position update (slide along walls) ─
+        const rig = controls.getObject(); // camera parent
+        const oldX = rig.position.x;
+        const oldZ = rig.position.z;
+
+        const newX = oldX + velocity.x;
+        const newZ = oldZ + velocity.z;
+
+        // Try full move, then fallback axis-by-axis for wall sliding.
+        // If player is already overlapping a collider (e.g. spawned inside),
+        // skip all checks so they can always walk free.
+        const alreadyInside = wouldCollide(oldX, oldZ);
+
+        if (alreadyInside || !wouldCollide(newX, newZ)) {
+          controls.moveRight(-velocity.x);
+          controls.moveForward(-velocity.z);
+        } else if (!wouldCollide(newX, oldZ)) {
+          controls.moveRight(-velocity.x);   // slide along Z wall
+        } else if (!wouldCollide(oldX, newZ)) {
+          controls.moveForward(-velocity.z); // slide along X wall
+        }
+        // else: genuinely blocked on both axes
+
+        // ── Vertical: gravity + jump ────────────────────
+        verticalVelocity += GRAVITY * delta;
+        rig.position.y   += verticalVelocity * delta;
+
+        if (rig.position.y <= EYE_HEIGHT) {
+          rig.position.y   = EYE_HEIGHT;
+          verticalVelocity = 0;
+          isOnGround       = true;
+        } else {
+          isOnGround = false;
+        }
+      }
+
+      // ── Death countdown (pointer is unlocked during death) ─
+      if (isDead) {
+        deathTimer += delta;
+        countdownEl.textContent = Math.max(0, Math.ceil(RESPAWN_TIME - deathTimer));
+        if (deathTimer >= RESPAWN_TIME) respawn();
+      }
+
+      // ── Animate viewmodel torch ────────────────────────
+      const isMoving = keys.forward || keys.backward || keys.left || keys.right;
+      // Flame flicker (same prime-frequency trick as world fires)
+      vmFlames.forEach(f => {
+        const p  = f.userData.phase;
+        const fy = f.userData.freqY;
+        const fs = f.userData.freqSway;
+        const sy = 0.70 + Math.sin(t * fy + p) * 0.38;
+        const sx = 0.60 + Math.sin(t * fs + p + 1) * 0.28;
+        f.scale.set(sx, sy, sx);
+        f.rotation.z = Math.sin(t * fs * 0.6 + p) * 0.18;
+      });
+      // Walking sway / idle breathing bob
+      torchGroup.position.x = VM_BASE_X
+        + (isMoving ? Math.sin(t *  9.0) * 0.014 : 0);
+      torchGroup.position.y = VM_BASE_Y
+        + (isMoving ? Math.sin(t * 14.0) * 0.010 : Math.sin(t * 1.3) * 0.004);
+
+      // ── Animate viewmodel gem (left hand) ───────────
+      if (gemCollected && !gemOffered) {
+        vmGemMesh.rotation.y += delta * 1.8;
+        vmGemMesh.rotation.x  = Math.sin(t * 0.9) * 0.18;
+        vmGemGroup.position.x = VM_GEM_X
+          + (isMoving ? -Math.sin(t *  9.0) * 0.014 : 0);
+        vmGemGroup.position.y = VM_GEM_Y
+          + (isMoving ? Math.sin(t * 14.0) * 0.010 : Math.sin(t * 1.3) * 0.004);
+        vmGemLight.intensity  = 1.4 + Math.sin(t * 3.7) * 0.5;
+      }
+
+      // ── Altar: proximity hint + gem animation ────────
+      if (gemCollected && !gemOffered && controls.isLocked) {
+        const _arig = controls.getObject();
+        const _adx  = _arig.position.x - offerAltarPos.x;
+        const _adz  = _arig.position.z - offerAltarPos.z;
+        altarHintEl.style.display = Math.sqrt(_adx*_adx + _adz*_adz) < 2.5 ? 'block' : 'none';
+      } else if (!gemCollected || gemOffered) {
+        altarHintEl.style.display = 'none';
+      }
+      if (gemOffered) {
+        offeredGemMesh.rotation.y += delta * 1.4;
+        offeredGemMesh.position.y  = (altarBreaking ? offeredGemMesh.position.y : 1.50 + offerAltarPos.y)
+                                     + (altarBreaking ? 0 : Math.sin(t * 1.6) * 0.06);
+        if (!altarBreaking) {
+          offeredGemMesh.position.y = offerAltarPos.y + 1.50 + Math.sin(t * 1.6) * 0.06;
+        } else {
+          // Gem drifts gently upward after break
+          offeredGemMesh.position.y += delta * 0.12;
+        }
+        offerGlowLight.intensity   = altarBreaking
+          ? Math.max(2.0, offerGlowLight.intensity - delta * 4) + Math.sin(t * 5.1) * 0.5
+          : 3.5 + Math.sin(t * 3.3) * 1.0;
+      } else {
+        offerGlowLight.intensity = 0.5 + Math.sin(t * 2.1) * 0.25;
+      }
+      // ── Altar & shrine debris physics ─────────────────
+      const _applyDebris = p => {
+        if (p.userData.settled) return;
+        p.userData.vel.y -= 14 * delta;
+        p.position.addScaledVector(p.userData.vel, delta);
+        p.rotation.x += p.userData.rotVel.x * delta;
+        p.rotation.y += p.userData.rotVel.y * delta;
+        p.rotation.z += p.userData.rotVel.z * delta;
+        if (p.position.y <= 0.06) {
+          p.position.y = 0.06;
+          p.userData.vel.multiplyScalar(0);
+          p.userData.rotVel.multiplyScalar(0);
+          p.userData.settled = true;
+        }
+      };
+      if (altarBreaking)  altarPieces.forEach(_applyDebris);
+      if (shrineBreaking) shrinePieces.forEach(_applyDebris);
+
+      // ── Shrine debris fade + hole reveal ────────────────────
+      if (shrineBreaking && !shrineFading && shrinePieces.length > 0
+          && shrinePieces.every(p => p.userData.settled)) {
+        if (shrineSettleTimer < 0) shrineSettleTimer = 1.8;  // 1.8s pause then fade
+        shrineSettleTimer -= delta;
+        if (shrineSettleTimer <= 0) {
+          shrineFading = true;
+          if (shrineHoleMesh) shrineHoleMesh.visible = true;
+          elevatorRising = true;
+        }
+      }
+      if (shrineFading) {
+        shrinePieces.forEach(p => {
+          if (!p.visible) return;
+          p.material.opacity = Math.max(0, p.material.opacity - delta * 0.22);
+          if (p.material.opacity <= 0) p.visible = false;
+        });
+      }
+      // ── Elevator rise + player carry ───────────────────────────
+      if (elevatorMesh) {
+        if (elevatorRising) {
+          elevatorMesh.position.y += ELEV_SPEED * delta;
+          if (elevatorMesh.position.y >= ELEV_TARGET) {
+            elevatorMesh.position.y = ELEV_TARGET;
+            elevatorRising = false;
+          }
+        }
+        // Support / carry player if standing on platform
+        const _rig2 = controls.getObject();
+        const _platTop = elevatorMesh.position.y + 0.14;
+        const _onX = Math.abs(_rig2.position.x - (-18)) < 1.25;
+        const _onZ = Math.abs(_rig2.position.z - (-55)) < 1.25;
+        if (_onX && _onZ) {
+          const _feet = _rig2.position.y - EYE_HEIGHT;
+          if (_feet <= _platTop + 0.12 && _feet >= _platTop - 0.8) {
+            _rig2.position.y = _platTop + EYE_HEIGHT;
+            if (verticalVelocity < 0) verticalVelocity = 0;
+            isOnGround = true;
+            // Trigger descent when player steps on the stopped lift
+            if (!elevatorRising && !elevatorDescending
+                && elevatorMesh.position.y >= ELEV_TARGET - 0.05) {
+              elevatorDescending = true;
+              blackoutEl.style.display = 'block';
+              setTimeout(() => { blackoutEl.style.opacity = '1'; }, 30);
+              // Teleport to city after black
+              setTimeout(() => {
+                const _cr = controls.getObject();
+                _cr.position.set(0, EYE_HEIGHT, 495);
+                _cr.rotation.set(0, Math.PI, 0);   // face into city
+                velocity.set(0, 0, 0);
+                verticalVelocity = 0;
+                isOnGround = true;
+                // Fade back in
+                blackoutEl.style.transition = 'opacity 2s ease-out';
+                blackoutEl.style.opacity = '0';
+                setTimeout(() => { blackoutEl.style.display = 'none'; }, 2100);
+              }, 4000);
+            }
+          }
+        }
+        // Descend
+        if (elevatorDescending) {
+          elevatorMesh.position.y -= ELEV_SPEED * 1.2 * delta;
+          if (elevatorMesh.position.y <= ELEV_START) {
+            elevatorMesh.position.y = ELEV_START;
+          }
+        }
+      }
+
+      // ── City exit platform ─────────────────────────────────────
+      if (cityExitMesh) {
+        // Pulse the glow
+        cityExitLight.intensity = 2.0 + Math.sin(t * 3.0) * 0.8;
+        cityExitMesh.rotation.y += delta * 0.4;
+        // Detect player stepping on it
+        if (!cityExitTriggered) {
+          const _er = controls.getObject();
+          const _edx = Math.abs(_er.position.x - 0);
+          const _edz = Math.abs(_er.position.z - 413);
+          if (_edx < 1.8 && _edz < 1.8 && _er.position.y - EYE_HEIGHT < 0.25) {
+            cityExitTriggered = true;
+            blackoutEl.style.transition = 'opacity 1.5s ease-in';
+            blackoutEl.style.display = 'block';
+            setTimeout(() => { blackoutEl.style.opacity = '1'; }, 30);
+            setTimeout(() => {
+              const _cr = controls.getObject();
+              _cr.position.set(0, EYE_HEIGHT, 0);
+              _cr.rotation.set(0, 0, 0);
+              velocity.set(0, 0, 0);
+              verticalVelocity = 0;
+              isOnGround = true;
+              blackoutEl.style.transition = 'opacity 2s ease-out';
+              blackoutEl.style.opacity = '0';
+              setTimeout(() => {
+                blackoutEl.style.display = 'none';
+                cityExitTriggered = false;  // allow re-entry
+              }, 2100);
+            }, 3000);
+          }
+        }
+      }
+
+      // ── Dual render pass ──────────────────────────────────
+      renderer.clear();                    // clear colour + depth
+      renderer.render(scene, camera);      // 1 — render world
+      renderer.clearDepth();               // clear depth only (keep colour)
+      renderer.render(vmScene, vmCamera);  // 2 — torch always on top
+    }
+
+    // ════════════════════════════════════════════════
+    // DEATH SYSTEM
+    // ════════════════════════════════════════════════
+
+    // ── Stamina ───────────────────────────────────
+    const MAX_STAMINA      = 30;
+    let   stamina          = MAX_STAMINA;
+    let   staminaExhausted = false;
+    const staminaFill = document.getElementById('staminaFill');
+    const staminaWrap = document.getElementById('staminaWrap');
+
+    // ── Gem pickup ──────────────────────────────
+    let gemCollected = false;
+    let gemOffered   = false;
+    const gemPickupEl   = document.getElementById('gemPickup');
+    const altarHintEl   = document.getElementById('altarHint');
+    const altarOfferedEl = document.getElementById('altarOffered');
+    const _gemWorldPos  = new THREE.Vector3();
+
+    const deathScreen  = document.getElementById('deathScreen');
+    const countdownEl  = document.getElementById('countdown');
+    const blackoutEl   = document.getElementById('blackout');
+    let isDead         = false;
+    let deathTimer     = 0;
+    const RESPAWN_TIME = 5;
+    let elevatorDescending  = false;
+    let cityExitMesh;
+    let cityExitLight;
+    let cityExitTriggered = false;
+
+    function triggerDeath() {
+      if (isDead) return;
+      isDead = true;
+      controls.unlock();                       // releases pointer, shows overlay
+      deathScreen.style.display = 'flex';      // death screen overlays the overlay
+      deathTimer = 0;
+    }
+
+    function respawn() {
+      isDead = false;
+      deathScreen.style.display = 'none';
+      stamina = MAX_STAMINA;
+      staminaExhausted = false;
+      staminaWrap.style.display = 'none';
+      const rig = controls.getObject();
+      rig.position.set(0, EYE_HEIGHT, 0);
+      velocity.set(0, 0, 0);
+      verticalVelocity = 0;
+      isOnGround       = true;
+    }
+
+    function triggerAltarBreak() {
+      altarBreaking = true;
+      // Flash the glow light
+      offerGlowLight.intensity = 12;
+      // Detach all breakable children from the group into world space
+      const _wpos = new THREE.Vector3();
+      const toBreak = altarGroup.children.filter(
+        c => c !== offeredGemMesh && c !== offerGlowLight
+      );
+      toBreak.forEach(child => {
+        child.getWorldPosition(_wpos);
+        altarGroup.remove(child);
+        child.position.copy(_wpos);
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1.5 + Math.random() * 3.5;
+        child.userData.vel = new THREE.Vector3(
+          Math.cos(angle) * speed,
+          2.5 + Math.random() * 4.0,
+          Math.sin(angle) * speed
+        );
+        child.userData.rotVel = new THREE.Vector3(
+          (Math.random() - 0.5) * 12,
+          (Math.random() - 0.5) * 12,
+          (Math.random() - 0.5) * 12
+        );
+        child.userData.settled = false;
+        scene.add(child);
+        altarPieces.push(child);
+      });
+      // Move gem + light to scene root so they survive the group removal
+      offeredGemMesh.getWorldPosition(_wpos);
+      altarGroup.remove(offeredGemMesh);
+      offeredGemMesh.position.copy(_wpos);
+      scene.add(offeredGemMesh);
+
+      offerGlowLight.getWorldPosition(_wpos);
+      altarGroup.remove(offerGlowLight);
+      offerGlowLight.position.copy(_wpos);
+      scene.add(offerGlowLight);
+
+      scene.remove(altarGroup);
+
+      // Break shrine with a short stagger after altar
+      setTimeout(() => {
+        shrineBreaking = true;
+        window._shrineCandleLight = null;  // kill candle flicker
+        const _sw = new THREE.Vector3();
+        const shrineOrigin = new THREE.Vector3(-18, 0, -55);
+        const shrineChildren = [...shrineGroup.children];
+        shrineChildren.forEach(child => {
+          child.getWorldPosition(_sw);
+          shrineGroup.remove(child);
+          child.position.copy(_sw);
+          // Outward from shrine centre
+          const dx = _sw.x - shrineOrigin.x;
+          const dz = _sw.z - shrineOrigin.z;
+          const dist = Math.sqrt(dx * dx + dz * dz) || 0.1;
+          const speed = 1.2 + Math.random() * 3.0;
+          child.userData.vel = new THREE.Vector3(
+            (dx / dist) * speed + (Math.random() - 0.5) * 1.2,
+            1.5 + Math.random() * 5.0,
+            (dz / dist) * speed + (Math.random() - 0.5) * 1.2
+          );
+          child.userData.rotVel = new THREE.Vector3(
+            (Math.random() - 0.5) * 14,
+            (Math.random() - 0.5) * 14,
+            (Math.random() - 0.5) * 14
+          );
+          // Clone material so each piece can fade independently
+          child.material = child.material.clone();
+          child.material.transparent = true;
+          child.material.opacity = 1.0;
+          child.userData.settled = false;
+          scene.add(child);
+          shrinePieces.push(child);
+        });
+        scene.remove(shrineGroup);
+
+        // Dark pit revealed as debris fades
+        const _holeMat = new THREE.MeshStandardMaterial({
+          color: 0x080404, roughness: 1.0, metalness: 0.0,
+          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+        });
+        shrineHoleMesh = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 0.01, 40), _holeMat);
+        shrineHoleMesh.position.set(-18, 0.02, -55);
+        shrineHoleMesh.visible = false;
+        scene.add(shrineHoleMesh);
+      }, 400);
+    }
+
+    // ════════════════════════════════════════════════
+    // UNDERGROUND CITY
+    // ════════════════════════════════════════════════
+    {
+      const CX = 0, CZ = 450;   // city centre (far from desert area)
+      const concMat  = new THREE.MeshStandardMaterial({ color: 0x28282c, roughness: 0.92, metalness: 0.08 });
+      const darkMat2 = new THREE.MeshStandardMaterial({ color: 0x131316, roughness: 0.98, metalness: 0.00 });
+      const winMat   = new THREE.MeshStandardMaterial({ color: 0x0d1828, roughness: 0.4,  emissive: 0x081018, emissiveIntensity: 1.2 });
+      const roadMat  = new THREE.MeshStandardMaterial({ color: 0x111114, roughness: 1.0  });
+      const poleMat  = new THREE.MeshStandardMaterial({ color: 0x2e2e34, roughness: 0.6, metalness: 0.6 });
+      const lampMat  = new THREE.MeshStandardMaterial({ color: 0xffeedd, emissive: 0xffaa44, emissiveIntensity: 2.5 });
+
+      // Cavern floor
+      const cityFloor = new THREE.Mesh(new THREE.PlaneGeometry(130, 130), concMat);
+      cityFloor.rotation.x = -Math.PI / 2;
+      cityFloor.position.set(CX, 0, CZ);
+      scene.add(cityFloor);
+
+      // Cavern ceiling
+      const cityCeil = new THREE.Mesh(new THREE.PlaneGeometry(130, 130), darkMat2);
+      cityCeil.rotation.x = Math.PI / 2;
+      cityCeil.position.set(CX, 20, CZ);
+      scene.add(cityCeil);
+
+      // Cavern walls
+      [
+        [0,  65, 130, 20, 0.5],
+        [0, -65, 130, 20, 0.5],
+        [ 65, 0, 0.5, 20, 130],
+        [-65, 0, 0.5, 20, 130],
+      ].forEach(([ox, oz, w, h, d]) => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), darkMat2);
+        wall.position.set(CX + ox, h / 2, CZ + oz);
+        scene.add(wall);
+      });
+
+      // Buildings  [x-offset, z, width, height, depth]
+      [
+        [-26, 475, 12,  8, 10],
+        [-29, 458, 10, 15,  9],
+        [-24, 440, 13,  6, 12],
+        [-31, 423, 14, 11, 11],
+        [-18, 466,  8,  5,  8],
+        [ 27, 472, 11, 12, 10],
+        [ 30, 455,  9, 17, 11],
+        [ 26, 438, 13,  7, 10],
+        [ 29, 422, 12, 10, 13],
+        [ 20, 462,  7,  5,  8],
+        [ -7, 428,  8,  9,  6],
+        [  7, 428,  8,  9,  6],
+        [  0, 420, 18, 13,  5],
+      ].forEach(([ox, bz, bw, bh, bd]) => {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), concMat);
+        body.position.set(CX + ox, bh / 2, bz);
+        scene.add(body);
+        // Window strips facing the street
+        const winRows = Math.max(1, Math.floor(bh / 3.2));
+        for (let r = 0; r < winRows; r++) {
+          const win = new THREE.Mesh(new THREE.BoxGeometry(bw * 0.65, 0.55, 0.12), winMat);
+          win.position.set(CX + ox, 1.6 + r * 3.2, bz + (ox < 0 ? bd / 2 + 0.07 : -bd / 2 - 0.07));
+          scene.add(win);
+        }
+      });
+
+      // Main street
+      const street = new THREE.Mesh(new THREE.PlaneGeometry(13, 85), roadMat);
+      street.rotation.x = -Math.PI / 2;
+      street.position.set(CX, 0.01, 453);
+      scene.add(street);
+
+      // Streetlights + point lights
+      [[-9,482],[9,482],[-9,466],[9,466],[-9,450],[9,450],[-9,434],[9,434],[-9,418],[9,418]]
+        .forEach(([lx, lz]) => {
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 5.0, 6), poleMat);
+          pole.position.set(CX + lx, 2.5, lz);
+          scene.add(pole);
+          const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 6, 4), lampMat);
+          lamp.position.set(CX + lx, 5.1, lz);
+          scene.add(lamp);
+          const pl = new THREE.PointLight(0xffaa44, 1.4, 16);
+          pl.position.set(CX + lx, 5.0, lz);
+          scene.add(pl);
+        });
+
+      // Exit platform — glowing teal disc at far end of street
+      const exitPlatMat = new THREE.MeshStandardMaterial({
+        color: 0x003322, emissive: 0x00ffaa, emissiveIntensity: 1.2,
+        roughness: 0.4, metalness: 0.3
+      });
+      cityExitMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.12, 24), exitPlatMat);
+      cityExitMesh.position.set(CX, 0.06, 413);
+      scene.add(cityExitMesh);
+      cityExitLight = new THREE.PointLight(0x00ffaa, 2.5, 10);
+      cityExitLight.position.set(CX, 1.8, 413);
+      scene.add(cityExitLight);
+      // Arrow signs pointing toward exit
+      const arrowMat = new THREE.MeshStandardMaterial({ color: 0x00ffaa, emissive: 0x00cc88, emissiveIntensity: 1.0 });
+      [-6, 6].forEach(ax => {
+        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 4), arrowMat);
+        arrow.rotation.z = ax < 0 ? Math.PI / 2 : -Math.PI / 2;
+        arrow.position.set(CX + ax * 0.5, 1.2, 413);
+        scene.add(arrow);
+      });
+
+      // Eerie ambient fill lights
+      const ambL1 = new THREE.PointLight(0x1a2266, 1.0, 90);
+      ambL1.position.set(CX, 14, CZ);
+      scene.add(ambL1);
+      const ambL2 = new THREE.PointLight(0x331a44, 0.6, 70);
+      ambL2.position.set(CX + 20, 10, CZ - 20);
+      scene.add(ambL2);
+    }
+
+    // Manual clear control — needed for the dual render pass above
+    renderer.autoClear = false;
+
+    gameLoop();
+
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Game Hub</title>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      min-height: 100vh;
+      background: #0d0d1a;
+      font-family: 'Segoe UI', sans-serif;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    header { width: 100%; padding: 40px 20px 10px; text-align: center; }
+    header h1 {
+      font-size: 3rem;
+      background: linear-gradient(135deg, #f5c842, #ff6b6b, #4ecca3);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+    header p { color: #888; margin-top: 8px; font-size: 1.05rem; letter-spacing: 1px; }
+    .games-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+      padding: 50px 40px;
+      max-width: 900px;
+      width: 100%;
+    }
+    .game-card {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 20px;
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 14px;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .game-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.3s;
+      border-radius: 20px;
+      pointer-events: none;
+    }
+    .game-card.cookie::before { background: radial-gradient(circle at top left, rgba(245,200,66,0.12), transparent 60%); }
+    .game-card.shoot::before  { background: radial-gradient(circle at top left, rgba(255,107,107,0.12), transparent 60%); }
+    .game-card:hover { transform: translateY(-6px); }
+    .game-card:hover::before { opacity: 1; }
+    .game-card.cookie:hover { border-color: #f5c842; box-shadow: 0 8px 32px rgba(245,200,66,0.2); }
+    .game-card.shoot:hover  { border-color: #ff6b6b; box-shadow: 0 8px 32px rgba(255,107,107,0.2); }
+    .game-icon { font-size: 3.5rem; line-height: 1; }
+    .badge {
+      position: absolute; top: 18px; right: 18px;
+      font-size: 0.7rem; font-weight: bold;
+      padding: 4px 10px; border-radius: 20px;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .badge.action  { background: #f5c84222; color: #f5c842; border: 1px solid #f5c842; }
+    .badge.shooter { background: #ff6b6b22; color: #ff6b6b; border: 1px solid #ff6b6b; }
+    .game-card h2 { font-size: 1.6rem; font-weight: 700; letter-spacing: 1px; }
+    .game-card.cookie h2 { color: #f5c842; }
+    .game-card.shoot  h2 { color: #ff6b6b; }
+    .game-card p { font-size: 0.95rem; color: #aaa; line-height: 1.6; }
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    .tag { font-size: 0.75rem; padding: 3px 10px; border-radius: 20px; background: #0d0d1a; color: #ccc; border: 1px solid #333; }
+    .play-btn {
+      margin-top: 6px; padding: 12px 28px; border: none; border-radius: 30px;
+      font-size: 1rem; font-weight: bold; cursor: pointer;
+      text-decoration: none; display: inline-block;
+      transition: transform 0.1s, filter 0.2s; letter-spacing: 0.5px;
+    }
+    .play-btn:hover  { filter: brightness(1.15); }
+    .play-btn:active { transform: scale(0.96); }
+    .game-card.cookie  .play-btn { background: #f5c842; color: #1a1a2e; }
+    .game-card.shoot   .play-btn { background: #ff6b6b; color: #fff; }
+    .game-card.dragon  .play-btn { background: #9b59b6; color: #fff; }
+    .game-card.dragon::before { background: radial-gradient(circle at top left, rgba(155,89,182,0.14), transparent 60%); }
+    .game-card.dragon:hover { border-color: #9b59b6; box-shadow: 0 8px 32px rgba(155,89,182,0.25); }
+    .game-card.dragon h2 { color: #c39bd3; }
+    .badge.rpg { background: #9b59b622; color: #c39bd3; border: 1px solid #9b59b6; }
+    footer { margin-top: auto; padding: 24px; color: #444; font-size: 0.8rem; letter-spacing: 1px; }
+    .game-card.desert .play-btn { background: #d4a853; color: #1a1008; }
+    .game-card.desert::before { background: radial-gradient(circle at top left, rgba(212,168,83,0.14), transparent 60%); }
+    .game-card.desert:hover { border-color: #d4a853; box-shadow: 0 8px 32px rgba(212,168,83,0.25); }
+    .game-card.desert h2 { color: #d4a853; }
+    .badge.horror { background: #d4a85322; color: #d4a853; border: 1px solid #d4a853; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>?? Game Hub</h1>
+    <p>Pick a game and play</p>
+  </header>
+  <div class="games-grid">
+    <div class="game-card cookie">
+      <span class="badge action">Action</span>
+      <div class="game-icon">??</div>
+      <h2>Click or Die</h2>
+      <p>Keep clicking the cookie or a snake will come and eat you. Earn pause breaks every 100 clicks. How long can you survive?</p>
+      <div class="tags">
+        <span class="tag">Clicker</span>
+        <span class="tag">Survival</span>
+        <span class="tag">High Score</span>
+      </div>
+      <a href="click-or-die.html" class="play-btn">&#9658; Play Now</a>
+    </div>
+    <div class="game-card shoot">
+      <span class="badge shooter">Shooter</span>
+      <div class="game-icon">??</div>
+      <h2>Shoot It</h2>
+      <p>3D first-person shooter. Take down targets hidden between trees and buildings. Earn kidsDollars and survive each wave before time runs out.</p>
+      <div class="tags">
+        <span class="tag">3D</span>
+        <span class="tag">FPS</span>
+        <span class="tag">Levels</span>
+        <span class="tag">kidsDollars</span>
+      </div>
+      <a href="shoot-it.html" class="play-btn">&#9658; Play Now</a>
+    </div>
+    <div class="game-card desert">
+      <span class="badge horror">Horror</span>
+      <div class="game-icon">&#x1F3DC;</div>
+      <h2>Desert Survival</h2>
+      <p>You survived the crash. Now survive the night. Explore a desolate desert, navigate the wreckage, and find the cave before the darkness takes you.</p>
+      <div class="tags">
+        <span class="tag">3D</span>
+        <span class="tag">First-Person</span>
+        <span class="tag">Horror</span>
+        <span class="tag">Exploration</span>
+      </div>
+      <a href="desert-survival.html" class="play-btn">&#9658; Play Now</a>
+    </div>
+    <div class="game-card dragon">
+      <span class="badge rpg">RPG</span>
+      <div class="game-icon">&#x1F409;</div>
+      <h2>Dragon Slayer</h2>
+      <p>Equip diamond armour piece by piece, wield a sword or bow, mine blocks for cover, and slay the mighty dragon before it burns you alive.</p>
+      <div class="tags">
+        <span class="tag">3D</span>
+        <span class="tag">RPG</span>
+        <span class="tag">WASD</span>
+        <span class="tag">Hotbar</span>
+        <span class="tag">Boss Fight</span>
+      </div>
+      <a href="dragon-slayer.html" class="play-btn">&#9658; Play Now</a>
+    </div>
+  </div>
+  <footer>Game Hub &mdash; 2026</footer>
+</body>
+</html>

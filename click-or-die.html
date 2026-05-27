@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Click or Die</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      color: #fff;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 10px;
+      color: #f5c842;
+      letter-spacing: 2px;
+    }
+
+    #hud {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 20px;
+      font-size: 1.1rem;
+    }
+
+    #hud span {
+      background: #16213e;
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: 1px solid #f5c842;
+    }
+
+    #game-area {
+      position: relative;
+      width: 600px;
+      height: 400px;
+      background: #16213e;
+      border: 2px solid #f5c842;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    #cookie {
+      position: absolute;
+      font-size: 60px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.08s;
+      filter: drop-shadow(0 0 10px #f5c842);
+    }
+
+    #cookie:active { transform: scale(0.85); }
+
+    #snake-container {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      transition: none;
+    }
+
+    .snake-segment {
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    #warning {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ff4444;
+      font-size: 1.3rem;
+      font-weight: bold;
+      text-align: center;
+      background: rgba(0,0,0,0.6);
+      padding: 10px 20px;
+      border-radius: 10px;
+      display: none;
+      pointer-events: none;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      border-radius: 14px;
+    }
+
+    #overlay h2 { font-size: 2rem; }
+    #overlay p  { font-size: 1.1rem; color: #ccc; text-align: center; max-width: 80%; }
+
+    button {
+      padding: 12px 30px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: transform 0.1s;
+    }
+    button:active { transform: scale(0.95); }
+
+    #start-btn  { background: #f5c842; color: #1a1a2e; }
+    #pause-btn  {
+      background: #4ecca3;
+      color: #1a1a2e;
+      display: none;
+      margin-top: 10px;
+    }
+    #pause-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #danger-bar-wrap {
+      width: 600px;
+      height: 14px;
+      background: #16213e;
+      border: 1px solid #444;
+      border-radius: 10px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    #danger-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4ecca3, #f5c842, #ff4444);
+      border-radius: 10px;
+      transition: width 0.15s, background 0.3s;
+    }
+
+    #pause-label {
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-top: 4px;
+    }
+
+    .click-burst {
+      position: absolute;
+      font-size: 1rem;
+      color: #f5c842;
+      font-weight: bold;
+      pointer-events: none;
+      animation: burst 0.6s ease-out forwards;
+    }
+
+    @keyframes burst {
+      0%   { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-40px) scale(1.4); }
+    }
+
+    #game-over-emoji { font-size: 3rem; }
+  </style>
+</head>
+<body>
+
+  <div style="position:fixed;top:14px;left:20px;z-index:200">
+    <a href="index.html" style="color:#888;font-size:0.82rem;text-decoration:none;
+       background:rgba(0,0,0,0.4);padding:5px 12px;border-radius:14px;
+       border:1px solid #333;letter-spacing:0.5px">← Hub</a>
+  </div>
+
+  <h1>🍪 Click or Die</h1>
+
+  <div id="hud">
+    <span>Clicks: <b id="click-count">0</b></span>
+    <span>Pauses left: <b id="pauses-left">3</b></span>
+    <span>Best: <b id="best-score">0</b></span>
+  </div>
+
+  <div id="game-area">
+
+    <div id="overlay">
+      <h2>🍪 Click or Die</h2>
+      <p>Keep clicking the cookie! Stop clicking and a snake will come for you.<br>
+         Every <b>100 clicks</b> you earn a <b>pause</b> (max 3).</p>
+      <button id="start-btn">Start Game</button>
+    </div>
+
+    <div id="cookie">🍪</div>
+    <div id="snake-container"></div>
+    <div id="warning"></div>
+
+  </div>
+
+  <div id="danger-bar-wrap">
+    <div id="danger-bar"></div>
+  </div>
+  <div id="pause-label">Danger meter — keep clicking!</div>
+
+  <button id="pause-btn">⏸ Use Pause Break</button>
+
+<script>
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const cookie       = document.getElementById('cookie');
+  const overlay      = document.getElementById('overlay');
+  const startBtn     = document.getElementById('start-btn');
+  const pauseBtn     = document.getElementById('pause-btn');
+  const clickCountEl = document.getElementById('click-count');
+  const pausesLeftEl = document.getElementById('pauses-left');
+  const bestScoreEl  = document.getElementById('best-score');
+  const dangerBar    = document.getElementById('danger-bar');
+  const warningEl    = document.getElementById('warning');
+  const gameArea     = document.getElementById('game-area');
+  const snakeCont    = document.getElementById('snake-container');
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  const AREA_W = 600, AREA_H = 400;
+  const GRACE_MS        = 2000;   // ms before snake starts moving after idle
+  const DANGER_MAX_MS   = 4000;   // full danger bar = snake reaches you
+  const PAUSE_DURATION  = 5000;   // pause break duration ms
+  const PAUSE_AT_CLICKS = 100;    // clicks needed to earn a pause
+  const MAX_PAUSES      = 3;
+
+  let clicks = 0, pauses = 0, bestScore = 0;
+  let lastClickTime = 0;
+  let gameRunning = false, paused = false, dead = false;
+  let idleTimer = null, dangerInterval = null, snakeInterval = null;
+  let dangerPct = 0;
+
+  // Snake position & direction
+  let sx = -120, sy = AREA_H / 2;  // starts off-screen left
+  let targetX, targetY;
+  const SNAKE_SPEED = 1.8;          // px per frame
+  const SEGMENTS    = 6;
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+
+  function moveCookie() {
+    const pad = 40;
+    const x = rand(pad, AREA_W - 80);
+    const y = rand(pad, AREA_H - 80);
+    cookie.style.left = x + 'px';
+    cookie.style.top  = y + 'px';
+  }
+
+  function buildSnake() {
+    snakeCont.innerHTML = '';
+    const parts = ['🐍', ...Array(SEGMENTS - 1).fill('🟢')];
+    parts.forEach(p => {
+      const s = document.createElement('span');
+      s.className = 'snake-segment';
+      s.textContent = p;
+      snakeCont.appendChild(s);
+    });
+    sx = -120; sy = AREA_H / 2;
+    snakeCont.style.left = sx + 'px';
+    snakeCont.style.top  = sy + 'px';
+    snakeCont.style.display = 'none';
+  }
+
+  function spawnClickBurst(x, y) {
+    const el = document.createElement('div');
+    el.className = 'click-burst';
+    el.textContent = '+1';
+    el.style.left = (x - 10) + 'px';
+    el.style.top  = (y - 10) + 'px';
+    gameArea.appendChild(el);
+    el.addEventListener('animationend', () => el.remove());
+  }
+
+  // ── Danger & snake logic ──────────────────────────────────────────────────
+  function startDanger() {
+    if (paused || dead) return;
+    clearInterval(dangerInterval);
+    dangerPct = 0;
+    dangerBar.style.width = '0%';
+    warningEl.style.display = 'none';
+
+    // After grace period, begin filling danger bar
+    idleTimer = setTimeout(() => {
+      if (paused || dead) return;
+      snakeCont.style.display = 'flex';
+      targetX = parseFloat(cookie.style.left) + 30;
+      targetY = parseFloat(cookie.style.top)  + 30;
+
+      warningEl.textContent = '⚠️ Snake incoming! CLICK!';
+      warningEl.style.display = 'block';
+
+      dangerInterval = setInterval(() => {
+        if (paused || dead) return;
+        dangerPct = Math.min(100, dangerPct + (100 / (DANGER_MAX_MS / 100)));
+        dangerBar.style.width = dangerPct + '%';
+        if (dangerPct >= 100) { triggerDeath(); }
+      }, 100);
+
+      snakeInterval = setInterval(moveSnake, 16);
+    }, GRACE_MS);
+  }
+
+  function stopDanger() {
+    clearTimeout(idleTimer);
+    clearInterval(dangerInterval);
+    clearInterval(snakeInterval);
+    dangerPct = 0;
+    dangerBar.style.width = '0%';
+    warningEl.style.display = 'none';
+    snakeCont.style.display = 'none';
+    sx = -120; sy = AREA_H / 2;
+    snakeCont.style.left = sx + 'px';
+    snakeCont.style.top  = sy + 'px';
+  }
+
+  function moveSnake() {
+    if (paused || dead) return;
+    // recalculate target = cookie center
+    targetX = parseFloat(cookie.style.left) + 30;
+    targetY = parseFloat(cookie.style.top)  + 30;
+
+    const dx = targetX - sx, dy = targetY - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 25) { triggerDeath(); return; }
+
+    sx += (dx / dist) * SNAKE_SPEED * (1 + dangerPct / 80);
+    sy += (dy / dist) * SNAKE_SPEED * (1 + dangerPct / 80);
+
+    snakeCont.style.left = sx + 'px';
+    snakeCont.style.top  = sy + 'px';
+
+    // Flip snake horizontally based on direction
+    snakeCont.style.transform = dx < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+  }
+
+  // ── Death ─────────────────────────────────────────────────────────────────
+  function triggerDeath() {
+    if (dead) return;
+    dead = true;
+    gameRunning = false;
+    clearTimeout(idleTimer);
+    clearInterval(dangerInterval);
+    clearInterval(snakeInterval);
+
+    if (clicks > bestScore) {
+      bestScore = clicks;
+      bestScoreEl.textContent = bestScore;
+    }
+
+    dangerBar.style.width = '100%';
+    cookie.style.display = 'none';
+    pauseBtn.style.display = 'none';
+
+    overlay.innerHTML = `
+      <div id="game-over-emoji">💀🐍</div>
+      <h2 style="color:#ff4444">YOU WERE EATEN!</h2>
+      <p>You survived <b>${clicks}</b> clicks.<br>
+         Best score: <b>${bestScore}</b> clicks.</p>
+      <button id="start-btn" style="background:#f5c842;color:#1a1a2e">Play Again</button>
+    `;
+    overlay.style.display = 'flex';
+    document.getElementById('start-btn').addEventListener('click', initGame);
+  }
+
+  // ── Pause break ───────────────────────────────────────────────────────────
+  pauseBtn.addEventListener('click', () => {
+    if (pauses <= 0 || paused || dead || !gameRunning) return;
+
+    pauses--;
+    paused = true;
+    pausesLeftEl.textContent = pauses;
+    pauseBtn.disabled = true;
+
+    stopDanger();
+    warningEl.textContent = `⏸ Pause break! ${PAUSE_DURATION / 1000}s rest...`;
+    warningEl.style.display = 'block';
+
+    let remaining = PAUSE_DURATION / 1000;
+    const countdown = setInterval(() => {
+      remaining--;
+      warningEl.textContent = remaining > 0
+        ? `⏸ Pause break! ${remaining}s rest...`
+        : '▶ Go! Click the cookie!';
+    }, 1000);
+
+    setTimeout(() => {
+      clearInterval(countdown);
+      paused = false;
+      warningEl.style.display = 'none';
+      pauseBtn.disabled = (pauses === 0);
+      startDanger();
+    }, PAUSE_DURATION);
+  });
+
+  // ── Cookie click ──────────────────────────────────────────────────────────
+  cookie.addEventListener('click', (e) => {
+    if (!gameRunning || paused || dead) return;
+
+    clicks++;
+    clickCountEl.textContent = clicks;
+
+    // Earn a pause every PAUSE_AT_CLICKS
+    if (clicks % PAUSE_AT_CLICKS === 0 && pauses < MAX_PAUSES) {
+      pauses++;
+      pausesLeftEl.textContent = pauses;
+      pauseBtn.disabled = false;
+      warningEl.textContent = '🎉 Pause earned! Keep clicking!';
+      warningEl.style.display = 'block';
+      setTimeout(() => {
+        if (!dead) warningEl.style.display = 'none';
+      }, 1500);
+    }
+
+    // Burst animation
+    const rect = gameArea.getBoundingClientRect();
+    spawnClickBurst(e.clientX - rect.left, e.clientY - rect.top);
+
+    // Move cookie to new spot
+    moveCookie();
+
+    // Reset danger
+    stopDanger();
+    startDanger();
+  });
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  function initGame() {
+    clicks = 0; pauses = 0; dead = false; paused = false; dangerPct = 0;
+    clickCountEl.textContent = 0;
+    pausesLeftEl.textContent = 0;
+    dangerBar.style.width = '0%';
+    warningEl.style.display = 'none';
+    cookie.style.display = 'block';
+
+    pauseBtn.style.display = 'none';
+    pauseBtn.disabled = true;
+
+    overlay.style.display = 'none';
+    buildSnake();
+    moveCookie();
+
+    gameRunning = true;
+    startDanger();
+  }
+
+  startBtn.addEventListener('click', initGame);
+
+  // Show pause button only when game is running & pauses > 0
+  setInterval(() => {
+    if (gameRunning && !dead) {
+      pauseBtn.style.display = 'block';
+      pauseBtn.disabled = (pauses === 0 || paused);
+    }
+  }, 200);
+
+  // Best score from localStorage
+  bestScore = parseInt(localStorage.getItem('cod_best') || '0');
+  bestScoreEl.textContent = bestScore;
+
+  window.addEventListener('beforeunload', () => {
+    if (clicks > bestScore) localStorage.setItem('cod_best', clicks);
+    if (bestScore)          localStorage.setItem('cod_best', bestScore);
+  });
+</script>
+</body>
+</html>

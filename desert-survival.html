@@ -167,6 +167,57 @@
       transition: background 0.25s;
     }
 
+    /* ── Shrine explosion vignette ────────────────── */
+    #shrineVignette {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(
+        ellipse at center,
+        transparent 30%,
+        rgba(210, 0, 0, 0.90) 100%
+      );
+      pointer-events: none;
+      z-index: 8;
+      display: none;
+      opacity: 0;
+    }
+
+    /* ── Health bar ────────────────────────────── */
+    #healthWrap {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      z-index: 5;
+      pointer-events: none;
+    }
+    #healthLabel {
+      font-size: 0.58rem;
+      letter-spacing: 0.22em;
+      color: rgba(255, 80, 80, 0.75);
+      text-transform: uppercase;
+      font-family: monospace;
+    }
+    #healthTrack {
+      width: 160px;
+      height: 6px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255, 80, 80, 0.35);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    #healthFill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #cc0000, #ff5555);
+      border-radius: 3px;
+      transition: background 0.25s;
+    }
+
     /* ── Death screen ─────────────────────────── */
     #deathScreen {
       position: fixed;
@@ -299,6 +350,15 @@
 
   <!-- ── Crosshair (Step 10) ───────────────────── -->
   <div id="crosshair"></div>
+
+  <!-- ── Shrine explosion vignette ────────────────────── -->
+  <div id="shrineVignette"></div>
+
+  <!-- ── Health bar ─────────────────────────────────── -->
+  <div id="healthWrap">
+    <div id="healthLabel">&#10084; Health</div>
+    <div id="healthTrack"><div id="healthFill"></div></div>
+  </div>
 
   <!-- ── Stamina bar ──────────────────────────────── -->
   <div id="staminaWrap">
@@ -1318,24 +1378,271 @@
 
     // ════════════════════════════════════════════════
 
+    // ── Touch / mobile detection (Step 1) ─────────────
+    const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
     const controls = new PointerLockControls(camera, renderer.domElement);
     scene.add(controls.getObject()); // attach camera rig to scene
 
-    const overlay    = document.getElementById('overlay');
-    const crosshair  = document.getElementById('crosshair');
+    const overlay   = document.getElementById('overlay');
+    const crosshair = document.getElementById('crosshair');
 
-    // Click anywhere on the overlay (or canvas) to lock pointer
-    overlay.addEventListener('click', () => controls.lock());
+    // ── Step 2: pointer-lock bypass on mobile ─────────
+    let mobileActive = false;
 
-    controls.addEventListener('lock', () => {
+    // isPlaying() — single source of truth for "game is running"
+    function isPlaying() {
+      return isTouch ? mobileActive : controls.isLocked;
+    }
+
+    function _showGame() {
       overlay.style.display   = 'none';
       crosshair.style.display = 'block';
-    });
-
-    controls.addEventListener('unlock', () => {
+      healthWrap.style.display = 'flex';
+    }
+    function _hideGame() {
       overlay.style.display   = 'flex';
       crosshair.style.display = 'none';
-    });
+      healthWrap.style.display = 'none';
+    }
+
+    if (isTouch) {
+      // Update CTA text for touch devices
+      const _cta = overlay.querySelector('.cta');
+      if (_cta) _cta.textContent = 'Tap to Play';
+      overlay.addEventListener('click', () => {
+        mobileActive = true;
+        _showGame();
+      });
+    } else {
+      overlay.addEventListener('click', () => controls.lock());
+      controls.addEventListener('lock',   _showGame);
+      controls.addEventListener('unlock', _hideGame);
+    }
+
+    // ── Step 3: touch look — right half of screen ─────
+    if (isTouch) {
+      const TOUCH_SENS = 0.003;
+      let lookTouchId = null, lookLast = null;
+
+      renderer.domElement.addEventListener('touchstart', e => {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (lookTouchId === null && t.clientX > window.innerWidth * 0.5) {
+            lookTouchId = t.identifier;
+            lookLast    = { x: t.clientX, y: t.clientY };
+          }
+        }
+      }, { passive: false });
+
+      renderer.domElement.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (!mobileActive) return;
+        for (const t of e.changedTouches) {
+          if (t.identifier === lookTouchId && lookLast) {
+            const dx = t.clientX - lookLast.x;
+            const dy = t.clientY - lookLast.y;
+            controls.getObject().rotation.y -= dx * TOUCH_SENS;
+            camera.rotation.x = Math.max(
+              -Math.PI / 2,
+              Math.min(Math.PI / 2, camera.rotation.x - dy * TOUCH_SENS)
+            );
+            lookLast = { x: t.clientX, y: t.clientY };
+          }
+        }
+      }, { passive: false });
+
+      const _endLook = e => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === lookTouchId) { lookTouchId = null; lookLast = null; }
+        }
+      };
+      renderer.domElement.addEventListener('touchend',    _endLook);
+      renderer.domElement.addEventListener('touchcancel', _endLook);
+    }
+
+    // ── Step 4: virtual joystick — left half of screen ──
+    if (isTouch) {
+      // ── Build DOM elements ──────────────────────────
+      const joyBase = document.createElement('div');
+      Object.assign(joyBase.style, {
+        display:       'none',
+        position:      'fixed',
+        borderRadius:  '50%',
+        width:         '110px',
+        height:        '110px',
+        background:    'rgba(255,255,255,0.12)',
+        border:        '2px solid rgba(255,255,255,0.30)',
+        boxSizing:     'border-box',
+        pointerEvents: 'none',
+        zIndex:        '101',
+        transform:     'translate(-50%,-50%)',
+      });
+      const joyKnob = document.createElement('div');
+      Object.assign(joyKnob.style, {
+        position:     'absolute',
+        top:          '50%',
+        left:         '50%',
+        transform:    'translate(-50%,-50%)',
+        width:        '50px',
+        height:       '50px',
+        borderRadius: '50%',
+        background:   'rgba(255,255,255,0.45)',
+      });
+      joyBase.appendChild(joyKnob);
+      document.body.appendChild(joyBase);
+
+      // Transparent touch zone covering left half of screen
+      const leftZone = document.createElement('div');
+      Object.assign(leftZone.style, {
+        position:    'fixed',
+        left:        '0',
+        top:         '0',
+        width:       '50%',
+        height:      '100%',
+        zIndex:      '100',
+        touchAction: 'none',
+        userSelect:  'none',
+      });
+      document.body.appendChild(leftZone);
+
+      // ── Joystick state ──────────────────────────────
+      let joyTouchId = null;
+      let joyOrigin  = null;
+      const JOY_RADIUS   = 45;   // max knob travel in px
+      const JOY_DEADZONE = 0.20; // fraction of radius before input registers
+
+      leftZone.addEventListener('touchstart', e => {
+        if (!mobileActive) return;
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (joyTouchId === null) {
+            joyTouchId = t.identifier;
+            joyOrigin  = { x: t.clientX, y: t.clientY };
+            joyBase.style.left    = t.clientX + 'px';
+            joyBase.style.top     = t.clientY + 'px';
+            joyBase.style.display = 'block';
+            break;
+          }
+        }
+      }, { passive: false });
+
+      leftZone.addEventListener('touchmove', e => {
+        if (!mobileActive) return;
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (t.identifier === joyTouchId && joyOrigin) {
+            const dx   = t.clientX - joyOrigin.x;
+            const dy   = t.clientY - joyOrigin.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const clmp = Math.min(dist, JOY_RADIUS);
+            const nx   = dist > 0 ? (dx / dist) * clmp : 0;
+            const ny   = dist > 0 ? (dy / dist) * clmp : 0;
+
+            joyKnob.style.transform =
+              `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
+
+            const fx = nx / JOY_RADIUS;
+            const fy = ny / JOY_RADIUS;
+            keys.forward  = fy < -JOY_DEADZONE;
+            keys.backward = fy >  JOY_DEADZONE;
+            keys.left     = fx < -JOY_DEADZONE;
+            keys.right    = fx >  JOY_DEADZONE;
+          }
+        }
+      }, { passive: false });
+
+      const _endJoy = e => {
+        for (const t of e.changedTouches) {
+          if (t.identifier === joyTouchId) {
+            joyTouchId = null;
+            joyOrigin  = null;
+            joyBase.style.display   = 'none';
+            joyKnob.style.transform = 'translate(-50%,-50%)';
+            keys.forward = keys.backward = keys.left = keys.right = false;
+          }
+        }
+      };
+      leftZone.addEventListener('touchend',    _endJoy);
+      leftZone.addEventListener('touchcancel', _endJoy);
+    }
+
+    // ── Step 5: mobile action buttons ───────────────
+    if (isTouch) {
+      const _mkBtn = (label, right, bottom, size, bg) => {
+        const b = document.createElement('div');
+        Object.assign(b.style, {
+          position:       'fixed',
+          right:          right,
+          bottom:         bottom,
+          width:          size,
+          height:         size,
+          borderRadius:   '50%',
+          border:         '2px solid rgba(255,255,255,0.35)',
+          background:     bg,
+          color:          '#fff',
+          fontSize:       '22px',
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          touchAction:    'none',
+          userSelect:     'none',
+          zIndex:         '102',
+          fontFamily:     'sans-serif',
+          fontWeight:     'bold',
+        });
+        b.textContent = label;
+        document.body.appendChild(b);
+        return b;
+      };
+
+      // Attack ⚔ — bottom-right
+      const btnAttack = _mkBtn('⚔', '20px', '40px', '70px', 'rgba(180,40,20,0.55)');
+      // Jump ↑ — left of attack
+      const btnJump   = _mkBtn('↑',  '105px', '50px', '60px', 'rgba(0,0,0,0.45)');
+      // Interact E — above attack
+      const btnE      = _mkBtn('E',  '22px', '125px', '55px', 'rgba(30,100,200,0.55)');
+
+      // ── Attack ────────────────────────────────────
+      btnAttack.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (!isPlaying() || isDead || isAttacking || attackCooldown > 0) return;
+        isAttacking    = true;
+        attackTimer    = 0;
+        attackHit      = false;
+        attackCooldown = ATTACK_COOLDOWN;
+      }, { passive: false });
+
+      // ── Jump ──────────────────────────────────────
+      btnJump.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (!isPlaying() || isDead || !isOnGround) return;
+        verticalVelocity = JUMP_FORCE;
+        isOnGround = false;
+      }, { passive: false });
+
+      // ── Interact (E) ──────────────────────────────
+      btnE.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (!isPlaying() || isDead || !gemCollected || gemOffered) return;
+        const _rig = controls.getObject();
+        const _edx = _rig.position.x - offerAltarPos.x;
+        const _edz = _rig.position.z - offerAltarPos.z;
+        if (Math.sqrt(_edx * _edx + _edz * _edz) < 2.2) {
+          gemOffered = true;
+          vmGemGroup.visible       = false;
+          offeredGemMesh.visible   = true;
+          offerGlowLight.intensity = 5.0;
+          altarHintEl.style.display = 'none';
+          setTimeout(() => triggerAltarBreak(), 700);
+          altarOfferedEl.style.animation = 'none';
+          altarOfferedEl.offsetHeight;
+          altarOfferedEl.style.display   = 'block';
+          altarOfferedEl.style.animation = 'offerFade 4s forwards';
+          setTimeout(() => { altarOfferedEl.style.display = 'none'; }, 4000);
+        }
+      }, { passive: false });
+    }
 
     // ════════════════════════════════════════════════
     // VIEWMODEL — First-person torch in right hand
@@ -1443,6 +1750,37 @@
     vmGemGroup.position.set(VM_GEM_X, VM_GEM_Y, VM_GEM_Z);
     vmGemGroup.visible = false;
     vmScene.add(vmGemGroup);
+
+    // ── Viewmodel legs — visible at bottom of screen ─────────────────────
+    const legsGroup = new THREE.Group();
+
+    const legPantsMat = new THREE.MeshStandardMaterial({ color: 0x7a6044, roughness: 0.9, metalness: 0.0 });
+    const legBootMat  = new THREE.MeshStandardMaterial({ color: 0x2e1a0e, roughness: 0.95, metalness: 0.0 });
+
+    function makeViewLeg(side) {   // side: -1 = left, +1 = right
+      const lg = new THREE.Group();
+      // Thigh
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.20, 0.09), legPantsMat);
+      thigh.position.y = -0.10;
+      lg.add(thigh);
+      // Shin
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.08), legPantsMat);
+      shin.position.y = -0.29;
+      lg.add(shin);
+      // Boot
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.07, 0.13), legBootMat);
+      boot.position.set(0, -0.395, 0.020);
+      lg.add(boot);
+      lg.position.set(side * 0.10, -0.54, -0.55);
+      return lg;
+    }
+
+    const leftLeg  = makeViewLeg(-1);
+    const rightLeg = makeViewLeg( 1);
+    legsGroup.add(leftLeg);
+    legsGroup.add(rightLeg);
+    vmScene.add(legsGroup);
+
     // travels with the player and lights nearby sand / cave walls.
     const torchWorldLight = new THREE.PointLight(0xff7722, 3.0, 14);
     torchWorldLight.position.set(0.5, 0.2, -0.5);
@@ -1469,14 +1807,14 @@
         case 'KeyA': case 'ArrowLeft':  keys.left     = true;  break;
         case 'KeyD': case 'ArrowRight': keys.right    = true;  break;
         case 'Space':
-          if (controls.isLocked && isOnGround) {
+          if (isPlaying() && isOnGround) {
             verticalVelocity = JUMP_FORCE;
             isOnGround = false;
           }
           e.preventDefault();
           break;
         case 'KeyE':
-          if (controls.isLocked && gemCollected && !gemOffered) {
+          if (isPlaying() && gemCollected && !gemOffered) {
             const _rig = controls.getObject();
             const _edx = _rig.position.x - offerAltarPos.x;
             const _edz = _rig.position.z - offerAltarPos.z;
@@ -1509,6 +1847,28 @@
       }
     });
 
+    // ════════════════════════════════════════════════
+    // ATTACK SYSTEM — left-click torch swing
+    // ════════════════════════════════════════════════
+    let isAttacking    = false;
+    let attackTimer    = 0;
+    let attackHit      = false;   // prevent double-hit per swing
+    let attackCooldown = 0;
+    let attackComboStep = 0;      // 0=left swing, 1=right swing, 2=jab
+    const ATTACK_DUR      = 0.30; // duration of each individual hit (seconds)
+    const ATTACK_COOLDOWN = 0.10; // brief pause before next hit is allowed
+    const ATTACK_RANGE    = 2.5;  // melee reach in world units
+
+    document.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;                          // left-click only
+      if (!isPlaying() || isDead) return;                 // only while playing
+      if (isAttacking || attackCooldown > 0) return;       // busy or cooling down
+      isAttacking    = true;
+      attackTimer    = 0;
+      attackHit      = false;
+      attackCooldown = ATTACK_COOLDOWN;
+    });
+
     const SPEED          = 0.5;   // player base movement speed
     const SPRINT_MULT    = 3.0;   // sprint multiplier when Shift held
     const DAMPING        = 10.0;  // higher = snappier stop
@@ -1536,22 +1896,50 @@
       new THREE.Vector3( 2,  4,  -8)
     );
 
-    // Cave collision — two manual boxes flanking the entrance gap.
+    // Cave collision — layered boxes around the entrance and tunnel.
     // Cave group is at world (4, 0, -90). Cliff face is 28 wide × 6 deep.
-    // Entrance opening is 5 units wide centred at x=4 → gap x: 1.5 → 6.5.
-    // Left solid wall (x: -12 → 1.5) and right solid wall (x: 6.5 → 20)
-    // cover only the actual rock, leaving the doorway completely clear.
+    // Entrance opening gap x: 1.5 → 6.5 in world space.
+
+    // ── Left solid wall — outer layer (wide, deep) ─────────
     const caveWallLeft = new THREE.Box3(
-      new THREE.Vector3(-12, -1, -94),
-      new THREE.Vector3(1.5,  20, -86)
+      new THREE.Vector3(-18, -1, -118),
+      new THREE.Vector3(1.5,  22,  -83)
     );
+    // ── Left solid wall — inner layer (tighter, extra thickness) ──
+    const caveWallLeftInner = new THREE.Box3(
+      new THREE.Vector3(-14, -1, -116),
+      new THREE.Vector3(2.2,  22,  -85)
+    );
+
+    // ── Right solid wall — outer layer ─────────────────────
     const caveWallRight = new THREE.Box3(
-      new THREE.Vector3(6.5,  -1, -94),
-      new THREE.Vector3(20,   20, -86)
+      new THREE.Vector3(6.5,  -1, -118),
+      new THREE.Vector3(26,   22,  -83)
+    );
+    // ── Right solid wall — inner layer ─────────────────────
+    const caveWallRightInner = new THREE.Box3(
+      new THREE.Vector3(5.8,  -1, -116),
+      new THREE.Vector3(22,   22,  -85)
+    );
+
+    // ── Back wall of the tunnel (world Z ≈ -112) ───────────
+    const caveBackWall = new THREE.Box3(
+      new THREE.Vector3(1.5, -1, -118),
+      new THREE.Vector3(6.5, 22, -110)
+    );
+    // ── Back wall inner layer ──────────────────────────────
+    const caveBackWallInner = new THREE.Box3(
+      new THREE.Vector3(2.2, -1, -116),
+      new THREE.Vector3(5.8, 22, -111)
     );
 
     // Collect all colliders
-    const colliders = [planeBBox, caveWallLeft, caveWallRight];
+    const colliders = [
+      planeBBox,
+      caveWallLeft, caveWallLeftInner,
+      caveWallRight, caveWallRightInner,
+      caveBackWall, caveBackWallInner,
+    ];
 
     /**
      * Returns true if a point (x, z) at player radius overlaps any collider.
@@ -1622,8 +2010,8 @@
         });
       });
 
-      // ── Movement (only when pointer is locked) ─────────
-      if (controls.isLocked) {
+      // ── Movement (only when game is active) ────────────
+      if (isPlaying()) {
 
         // ── Scorpion scatter ──────────────────────────────
         {
@@ -1664,18 +2052,31 @@
           }
         }
 
-        // ── Snake proximity → death ───────────────────────
+        // ── Snake proximity → health drain ────────────────
         if (!isDead) {
           const _px = controls.getObject().position.x;
           const _pz = controls.getObject().position.z;
+          let _nearSnake = false;
           for (const snake of snakes) {
             const dx = _px - snake.position.x;
             const dz = _pz - snake.position.z;
             if (Math.sqrt(dx * dx + dz * dz) < snake.userData.killRadius) {
-              triggerDeath();
+              _nearSnake = true;
               break;
             }
           }
+          if (_nearSnake) {
+            health = Math.max(0, health - HEALTH_DRAIN_RATE * delta);
+          } else {
+            health = Math.min(MAX_HEALTH, health + HEALTH_REGEN_RATE * delta);
+          }
+          if (health <= 0) triggerDeath();
+          // Update health bar
+          const _hp = health / MAX_HEALTH;
+          healthFill.style.width = (_hp * 100) + '%';
+          healthFill.style.background = _hp < 0.25
+            ? 'linear-gradient(90deg,#880000,#cc2222)'
+            : 'linear-gradient(90deg,#cc0000,#ff5555)';
         }
 
         // Apply damping to bleed off velocity smoothly
@@ -1697,7 +2098,7 @@
           stamina = Math.min(MAX_STAMINA, stamina + delta * 0.6);
           if (staminaExhausted && stamina >= 5) staminaExhausted = false;
         }
-        const isSprinting = wantsToSprint && !staminaExhausted;
+        isSprinting = wantsToSprint && !staminaExhausted;
         // Update stamina bar
         const pct = stamina / MAX_STAMINA;
         staminaFill.style.width = (pct * 100) + '%';
@@ -1764,11 +2165,70 @@
         f.scale.set(sx, sy, sx);
         f.rotation.z = Math.sin(t * fs * 0.6 + p) * 0.18;
       });
-      // Walking sway / idle breathing bob
-      torchGroup.position.x = VM_BASE_X
-        + (isMoving ? Math.sin(t *  9.0) * 0.014 : 0);
-      torchGroup.position.y = VM_BASE_Y
-        + (isMoving ? Math.sin(t * 14.0) * 0.010 : Math.sin(t * 1.3) * 0.004);
+      // ── Attack combo — one hit per click (left → right → jab → repeat) ──
+      attackCooldown = Math.max(0, attackCooldown - delta);
+      if (isAttacking) {
+        attackTimer += delta;
+        const p  = Math.min(attackTimer / ATTACK_DUR, 1.0);
+        const sw = Math.sin(p * Math.PI);   // 0 → peak → 0
+
+        if (attackComboStep === 0) {
+          // — Left swing —
+          torchGroup.position.x = VM_BASE_X - sw * 0.42;
+          torchGroup.position.y = VM_BASE_Y + sw * 0.06;
+          torchGroup.position.z = VM_BASE_Z;
+          torchGroup.rotation.x =  0.10 - sw * 1.0;
+          torchGroup.rotation.y =  sw * 1.4;
+          torchGroup.rotation.z =  0.28 + sw * 0.10;
+        } else if (attackComboStep === 1) {
+          // — Right swing —
+          torchGroup.position.x = VM_BASE_X + sw * 0.42;
+          torchGroup.position.y = VM_BASE_Y + sw * 0.06;
+          torchGroup.position.z = VM_BASE_Z;
+          torchGroup.rotation.x =  0.10 - sw * 1.0;
+          torchGroup.rotation.y = -sw * 1.4;
+          torchGroup.rotation.z =  0.28 - sw * 0.10;
+        } else {
+          // — Jab —
+          torchGroup.position.x = VM_BASE_X;
+          torchGroup.position.y = VM_BASE_Y + sw * 0.04;
+          torchGroup.position.z = VM_BASE_Z - sw * 0.30;
+          torchGroup.rotation.x =  0.10 - sw * 1.3;
+          torchGroup.rotation.y =  0;
+          torchGroup.rotation.z =  0.28;
+        }
+
+        // Advance combo step and restore pose when hit finishes
+        if (p >= 1.0) {
+          isAttacking           = false;
+          attackComboStep       = (attackComboStep + 1) % 3;
+          torchGroup.position.z = VM_BASE_Z;
+          torchGroup.rotation.x = 0.10;
+          torchGroup.rotation.y = 0;
+          torchGroup.rotation.z = 0.28;
+        }
+      } else {
+        // Walking sway / idle breathing bob
+        torchGroup.position.x = VM_BASE_X
+          + (isMoving ? Math.sin(t *  9.0) * 0.014 : 0);
+        torchGroup.position.y = VM_BASE_Y
+          + (isMoving ? Math.sin(t * 14.0) * 0.010 : Math.sin(t * 1.3) * 0.004);
+        torchGroup.position.z = VM_BASE_Z;
+      }
+
+      // ── Animate viewmodel legs ───────────────────────────
+      {
+        const legFreq = isSprinting ? 18.0 : 9.0;   // faster when sprinting
+        const legAmp  = isSprinting ? 0.58 : 0.42;  // wider stride when sprinting
+        const targetL = isMoving ? Math.sin(t * legFreq)             * legAmp : 0;
+        const targetR = isMoving ? Math.sin(t * legFreq + Math.PI)   * legAmp : 0;
+        // Smooth lerp to target so legs glide to rest when stopping
+        leftLeg.rotation.x  += (targetL - leftLeg.rotation.x)  * Math.min(1, delta * 20);
+        rightLeg.rotation.x += (targetR - rightLeg.rotation.x) * Math.min(1, delta * 20);
+        // Subtle lateral sway and vertical bob matching the step
+        legsGroup.position.x  = isMoving ? Math.sin(t * legFreq * 0.5) * 0.010 : 0;
+        legsGroup.position.y  = isMoving ? Math.abs(Math.sin(t * legFreq)) * -0.010 : 0;
+      }
 
       // ── Animate viewmodel gem (left hand) ───────────
       if (gemCollected && !gemOffered) {
@@ -1782,7 +2242,7 @@
       }
 
       // ── Altar: proximity hint + gem animation ────────
-      if (gemCollected && !gemOffered && controls.isLocked) {
+      if (gemCollected && !gemOffered && isPlaying()) {
         const _arig = controls.getObject();
         const _adx  = _arig.position.x - offerAltarPos.x;
         const _adz  = _arig.position.z - offerAltarPos.z;
@@ -1937,6 +2397,14 @@
     // DEATH SYSTEM
     // ════════════════════════════════════════════════
 
+    // ── Health ─────────────────────────────────────
+    const MAX_HEALTH        = 100;
+    let   health             = MAX_HEALTH;
+    const HEALTH_DRAIN_RATE  = 28;    // HP per second lost while touching a snake
+    const HEALTH_REGEN_RATE  = 2.5;  // HP per second regenerated (100 HP in 40 s)
+    const healthFill = document.getElementById('healthFill');
+    const healthWrap = document.getElementById('healthWrap');
+
     // ── Stamina ───────────────────────────────────
     const MAX_STAMINA      = 30;
     let   stamina          = MAX_STAMINA;
@@ -1947,15 +2415,42 @@
     // ── Gem pickup ──────────────────────────────
     let gemCollected = false;
     let gemOffered   = false;
-    const gemPickupEl   = document.getElementById('gemPickup');
-    const altarHintEl   = document.getElementById('altarHint');
+    const gemPickupEl    = document.getElementById('gemPickup');
+    const altarHintEl    = document.getElementById('altarHint');
     const altarOfferedEl = document.getElementById('altarOffered');
+
+    // ── Step 6: mobile UI polish ─────────────────────
+    if (isTouch) {
+      // Inject CSS overrides for mobile
+      const _ms = document.createElement('style');
+      _ms.textContent = `
+        /* Prevent double-tap zoom */
+        html { touch-action: manipulation; }
+        /* Larger health / stamina bars */
+        #healthTrack  { width: 220px; height: 10px; }
+        #staminaTrack { width: 220px; height: 10px; }
+        #healthLabel, #staminaLabel { font-size: 0.72rem; }
+        /* No crosshair — touch look has no precise centre */
+        #crosshair { display: none !important; }
+        /* Hide WASD/ESC hint — irrelevant on mobile */
+        #overlay .controls-hint { display: none; }
+        /* Move altar hint above the action buttons */
+        #altarHint { bottom: 220px; font-size: 1.05rem; }
+        /* Move stamina bar above buttons area */
+        #staminaWrap { bottom: 210px; }
+      `;
+      document.head.appendChild(_ms);
+
+      // Update altar hint text to reference the tap button
+      altarHintEl.textContent = 'Tap [E] — Place Gem in Altar';
+    }
     const _gemWorldPos  = new THREE.Vector3();
 
     const deathScreen  = document.getElementById('deathScreen');
     const countdownEl  = document.getElementById('countdown');
     const blackoutEl   = document.getElementById('blackout');
     let isDead         = false;
+    let isSprinting    = false;   // hoisted so leg animation can read it
     let deathTimer     = 0;
     const RESPAWN_TIME = 5;
     let elevatorDescending  = false;
@@ -1966,14 +2461,16 @@
     function triggerDeath() {
       if (isDead) return;
       isDead = true;
-      controls.unlock();                       // releases pointer, shows overlay
-      deathScreen.style.display = 'flex';      // death screen overlays the overlay
+      if (!isTouch) controls.unlock();         // desktop: release pointer + show overlay
+      deathScreen.style.display = 'flex';
       deathTimer = 0;
     }
 
     function respawn() {
       isDead = false;
       deathScreen.style.display = 'none';
+      health = MAX_HEALTH;
+      healthFill.style.width = '100%';
       stamina = MAX_STAMINA;
       staminaExhausted = false;
       staminaWrap.style.display = 'none';
@@ -2029,7 +2526,32 @@
       // Break shrine with a short stagger after altar
       setTimeout(() => {
         shrineBreaking = true;
+        health = 1;   // shrine explosion nearly kills the player
         window._shrineCandleLight = null;  // kill candle flicker
+
+        // ── Knockback — push player away from shrine (−18, 0, −55) ──
+        const _rig = controls.getObject();
+        const _kbDx = _rig.position.x - (-18);
+        const _kbDz = _rig.position.z - (-55);
+        const _kbDist = Math.sqrt(_kbDx * _kbDx + _kbDz * _kbDz) || 1;
+        const _kbStr  = 10.0;
+        velocity.x = (_kbDx / _kbDist) * _kbStr;
+        velocity.z = (_kbDz / _kbDist) * _kbStr;
+        verticalVelocity = 6.0;
+        isOnGround = false;
+
+        // ── Red vignette — flash instantly, fade over 10 s ──
+        const _vig = document.getElementById('shrineVignette');
+        _vig.style.transition = 'none';
+        _vig.style.opacity    = '1';
+        _vig.style.display    = 'block';
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {          // two frames to commit the opacity=1 paint
+            _vig.style.transition = 'opacity 10s ease-out';
+            _vig.style.opacity    = '0';
+          });
+        });
+        setTimeout(() => { _vig.style.display = 'none'; }, 10500);
         const _sw = new THREE.Vector3();
         const shrineOrigin = new THREE.Vector3(-18, 0, -55);
         const shrineChildren = [...shrineGroup.children];
@@ -2185,6 +2707,190 @@
       const ambL2 = new THREE.PointLight(0x331a44, 0.6, 70);
       ambL2.position.set(CX + 20, 10, CZ - 20);
       scene.add(ambL2);
+    }
+
+    // ════════════════════════════════════════════════
+    // CITY GOBLINS — 5 ferocious club-wielding goblins
+    // ════════════════════════════════════════════════
+    {
+      const skinMat  = new THREE.MeshStandardMaterial({ color: 0x3d8a28, roughness: 0.85 });
+      const darkMat  = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9  });
+      const eyeMat   = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xdd7700, emissiveIntensity: 1.0 });
+      const pupilMat = new THREE.MeshStandardMaterial({ color: 0x0a0000 });
+      const toothMat = new THREE.MeshStandardMaterial({ color: 0xeeddcc });
+      const woodMat  = new THREE.MeshStandardMaterial({ color: 0x5a3510, roughness: 0.95 });
+      const clubMat  = new THREE.MeshStandardMaterial({ color: 0x2e1804, roughness: 1.0  });
+      const browMat  = new THREE.MeshStandardMaterial({ color: 0x193a06, roughness: 0.9  });
+
+      function makeGoblin(x, z, rotY) {
+        const g = new THREE.Group();
+
+        // — Legs & boots —
+        [-0.13, 0.13].forEach(lx => {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.44, 0.17), skinMat);
+          leg.position.set(lx, 0.22, 0);
+          g.add(leg);
+          const boot = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.10, 0.23), darkMat);
+          boot.position.set(lx, 0.05, 0.03);
+          g.add(boot);
+        });
+
+        // — Torso —
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.52, 0.30), skinMat);
+        body.position.y = 0.68;
+        g.add(body);
+
+        // — Shoulders —
+        const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.13, 0.28), skinMat);
+        shoulders.position.y = 0.91;
+        g.add(shoulders);
+
+        // — Left arm (hanging down, slightly out) —
+        const armL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.40, 0.14), skinMat);
+        armL.position.set(-0.32, 0.66, 0);
+        armL.rotation.z = 0.22;
+        g.add(armL);
+
+        // — Right arm (raised to hold club) —
+        const armR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.40, 0.14), skinMat);
+        armR.position.set(0.32, 0.76, 0);
+        armR.rotation.z = -1.15;
+        g.add(armR);
+
+        // — Club (right hand) —
+        const clubG = new THREE.Group();
+        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.050, 0.54, 7), woodMat);
+        handle.position.y = 0.27;
+        clubG.add(handle);
+        const clubHead = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15, 0), clubMat);
+        clubHead.position.y = 0.58;
+        clubG.add(clubHead);
+        // Radial spikes on club head
+        const nubGeo = new THREE.ConeGeometry(0.024, 0.075, 4);
+        [
+          [ 0.14, 0.58,    0,           0, 0, -Math.PI / 2],
+          [-0.14, 0.58,    0,           0, 0,  Math.PI / 2],
+          [    0, 0.58,  0.14,  Math.PI / 2, 0, 0],
+          [    0, 0.58, -0.14, -Math.PI / 2, 0, 0],
+        ].forEach(([px, py, pz, rx, ry, rz]) => {
+          const nub = new THREE.Mesh(nubGeo, clubMat);
+          nub.position.set(px, py, pz);
+          nub.rotation.set(rx, ry, rz);
+          clubG.add(nub);
+        });
+        clubG.position.set(0.57, 0.82, 0);
+        clubG.rotation.z = -0.52;
+        g.add(clubG);
+
+        // — Head —
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), skinMat);
+        head.scale.y = 1.08;
+        head.position.y = 1.17;
+        g.add(head);
+
+        // — Heavy brow ridge —
+        const browRidge = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.062, 0.09), browMat);
+        browRidge.position.set(0, 1.285, 0.20);
+        browRidge.rotation.x = -0.28;
+        g.add(browRidge);
+
+        // — Angry angled eyebrows (\ /) —
+        [-0.10, 0.10].forEach((ex, i) => {
+          const brow = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.028, 0.044), darkMat);
+          brow.position.set(ex, 1.305, 0.215);
+          brow.rotation.z = i === 0 ? 0.52 : -0.52;
+          g.add(brow);
+        });
+
+        // — Eyes (glowing yellow) —
+        [-0.095, 0.095].forEach(ex => {
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.060, 6, 4), eyeMat);
+          eye.position.set(ex, 1.205, 0.215);
+          g.add(eye);
+          // Slit pupil
+          const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.055, 0.018), pupilMat);
+          pupil.position.set(ex, 1.205, 0.268);
+          g.add(pupil);
+        });
+
+        // — Warty goblin nose —
+        const nose = new THREE.Mesh(new THREE.SphereGeometry(0.060, 5, 4), skinMat);
+        nose.scale.set(1.1, 0.78, 1.3);
+        nose.position.set(0, 1.115, 0.255);
+        g.add(nose);
+        const wart = new THREE.Mesh(new THREE.SphereGeometry(0.020, 5, 4), skinMat);
+        wart.position.set(0.038, 1.148, 0.308);
+        g.add(wart);
+
+        // — Open snarl (dark mouth) —
+        const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.060, 0.068), darkMat);
+        mouth.position.set(0, 1.018, 0.225);
+        g.add(mouth);
+
+        // — Downward fangs from upper jaw —
+        [-0.062, 0.062].forEach(fx => {
+          const fang = new THREE.Mesh(new THREE.ConeGeometry(0.020, 0.078, 4), toothMat);
+          fang.rotation.x = Math.PI;   // tip points downward
+          fang.position.set(fx, 1.068, 0.225);
+          g.add(fang);
+        });
+
+        // — Pointed ears —
+        [-1, 1].forEach(side => {
+          const ear = new THREE.Mesh(new THREE.ConeGeometry(0.060, 0.17, 4), skinMat);
+          ear.position.set(side * 0.255, 1.275, 0);
+          ear.rotation.z = side * 0.82;
+          g.add(ear);
+        });
+
+        // Eerie eye glow (dim orange point light)
+        const eyeGlow = new THREE.PointLight(0xffaa00, 0.45, 2.8);
+        eyeGlow.position.set(0, 1.21, 0.32);
+        g.add(eyeGlow);
+
+        g.position.set(x, 0, z);
+        g.rotation.y = rotY;
+        g.scale.setScalar(0.78);
+        return g;
+      }
+
+      // Goblins huddled in a tight ring around the campfire (CF = 1, 460), radius 1.5
+      [
+        [ 2.50, 460.00, -1.57],
+        [ 1.46, 461.43, -2.81],
+        [-0.21, 460.88,  2.19],
+        [-0.21, 459.12,  0.94],
+        [ 1.46, 458.57, -0.31],
+      ].forEach(([x, z, ry]) => scene.add(makeGoblin(x, z, ry)));
+
+      // — Campfire at the centre of the goblin ring —
+      const CF_X = 1, CF_Z = 460;
+
+      const fireRockMat = new THREE.MeshStandardMaterial({ color: 0x252018, roughness: 1.0 });
+      const fireLogMat  = new THREE.MeshStandardMaterial({ color: 0x3a1e08, roughness: 0.95 });
+
+      // Ring of stones
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const rock = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.11 + Math.random() * 0.06, 0),
+          fireRockMat
+        );
+        rock.position.set(CF_X + Math.cos(a) * 0.52, 0.08, CF_Z + Math.sin(a) * 0.52);
+        rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+        scene.add(rock);
+      }
+
+      // Two crossed logs leaning into the fire
+      [0.18, Math.PI * 0.55].forEach((ry, i) => {
+        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.060, 0.075, 1.10, 7), fireLogMat);
+        log.position.set(CF_X, 0.07, CF_Z);
+        log.rotation.set(0.28, ry, 0);
+        scene.add(log);
+      });
+
+      // Fire emitter — animated by existing allFires loop
+      allFires.push(makeFireEmitter(CF_X, 0.20, CF_Z, 0.60));
     }
 
     // Manual clear control — needed for the dual render pass above

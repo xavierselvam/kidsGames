@@ -304,6 +304,21 @@
       60%  { opacity: 1; transform: translateX(-50%) translateY(-8px); }
       100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
     }
+    @keyframes slamShake {
+      0%   { transform: translate(0, 0) rotate(0deg); }
+      15%  { transform: translate(-5px,  8px) rotate(-0.6deg); }
+      30%  { transform: translate( 6px, -7px) rotate( 0.5deg); }
+      45%  { transform: translate(-4px,  5px) rotate(-0.4deg); }
+      60%  { transform: translate( 3px, -4px) rotate( 0.3deg); }
+      75%  { transform: translate(-2px,  3px) rotate(-0.2deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    .slam-shake { animation: slamShake 0.38s ease-out; }
+    #slam-flash {
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at bottom, rgba(255,140,0,0.45) 0%, transparent 70%);
+      pointer-events: none; opacity: 0; transition: opacity 0.06s;
+    }
     #blackout {
       position: fixed;
       inset: 0;
@@ -334,6 +349,62 @@
       font-size: 1.2rem;
       color: rgba(255, 100, 80, 0.65);
       letter-spacing: 0.12em;
+    }
+
+    /* ── Merchant goblin dialogue ──────────────────── */
+    #goblinDialog {
+      position: fixed;
+      bottom: 160px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 500px;
+      width: 92%;
+      background: rgba(10, 18, 6, 0.94);
+      border: 2px solid rgba(80, 200, 60, 0.45);
+      border-radius: 8px;
+      padding: 1.2em 1.6em;
+      display: none;
+      z-index: 6;
+      pointer-events: none;
+      text-align: center;
+      font-family: monospace;
+    }
+    .goblin-name {
+      color: #66ff44;
+      font-size: 0.72rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      margin-bottom: 0.55em;
+    }
+    .goblin-speech {
+      color: #ccc;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      margin-bottom: 0.75em;
+    }
+    .goblin-prompt {
+      color: rgba(255,255,255,0.38);
+      font-size: 0.70rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+    /* ── Goblin proximity hint ──────────────────────── */
+    #goblinHint {
+      position: fixed;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      color: rgba(80, 230, 80, 0.90);
+      font-size: 0.82rem;
+      letter-spacing: 0.18em;
+      font-family: monospace;
+      text-transform: uppercase;
+      white-space: nowrap;
+      z-index: 6;
+      pointer-events: none;
+      animation: altarPulse 1.8s ease-in-out infinite;
+      text-shadow: 0 0 10px rgba(60,200,60,0.55), 0 2px 6px #000;
     }
   </style>
 </head>
@@ -372,6 +443,18 @@
   <!-- ── Altar interaction hint ───────────────────── -->
   <div id="altarHint">[E] Place Gem in Altar</div>
   <div id="altarOffered">★ The Shrine Awakens... ★</div>
+
+  <!-- ── Merchant goblin dialogue ────────────────────── -->
+  <div id="goblinDialog">
+    <div class="goblin-name">&#9872; Grix the Merchant</div>
+    <div class="goblin-speech">Pssst... you got torch, yes? Grix want torch. Big warm! You give Grix torch &mdash; Grix give you iron sword. Sharp. Strong. Better than burning stick. Grrrk... deal?</div>
+    <div class="goblin-prompt">[E] Trade &nbsp;&bull;&nbsp; [Q] No thanks</div>
+  </div>
+  <!-- ── Goblin proximity hint ─────────────────────── -->
+  <div id="goblinHint">[E] Pick up Sword</div>
+
+  <!-- ── Slam ground flash ─────────────────────────── -->
+  <div id="slam-flash"></div>
 
   <!-- ── Death screen ─────────────────────────────── -->
   <div id="blackout"></div>
@@ -445,17 +528,19 @@
     // STEP 3 — Desert Ground & Sky
     // ════════════════════════════════════════════════
 
-    // ── Ground plane (500×500 sand) ───────────────────
-    const groundGeo = new THREE.PlaneGeometry(500, 500, 64, 64);
+    // ── Ground plane (sand) ──────────────────────────────
     const groundMat = new THREE.MeshStandardMaterial({
-      color: 0xc8a85a,       // sand — visible at night
+      color: 0xc8a85a,
       roughness: 0.95,
       metalness: 0.0,
     });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;   // lay flat
-    ground.receiveShadow = true;
-    scene.add(ground);
+    {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), groundMat);
+      p.rotation.x = -Math.PI / 2;
+      p.position.set(0, 0, 0);
+      p.receiveShadow = true;
+      scene.add(p);
+    }
 
     // ── Hemisphere light — sky vs ground ambient tint ─
     // (sky: cold night blue | ground: warm sand bounce)
@@ -1047,12 +1132,10 @@
     let shrineBreaking  = false;
     let shrineFading    = false;
     let shrineSettleTimer = -1;
-    let shrineHoleMesh;
-    let elevatorMesh;
-    let elevatorRising  = false;
-    const ELEV_START  = -7;
-    const ELEV_TARGET = 1.0;
-    const ELEV_SPEED  = 1.8;
+    let surfaceFloorTiles = [];   // collapsing floor pieces near shrine
+    let floorCollapsing   = false;
+    let playerFrozen      = false;
+    let playerFreezeTimer = 0;
     {
       const stoneMat  = new THREE.MeshStandardMaterial({ color: 0x58504a, roughness: 0.95, metalness: 0.05 });
       const darkMat   = new THREE.MeshStandardMaterial({ color: 0x38302a, roughness: 0.98, metalness: 0.00 });
@@ -1185,24 +1268,28 @@
     // GEM OFFERING ALTAR
     // ════════════════════════════════════════════════
     const offerAltarPos = new THREE.Vector3(-18, 0, -51);
+    let   swordPickupMesh = null;
     let   offerGlowLight, offeredGemMesh;
-    // ── Elevator platform (starts below ground, rises on shrine break) ──
+    // ── Collapsing floor tiles (hidden until shrine breaks) ─────────────
+    // 4×4 grid of sand-coloured slabs centred on the shrine at (-18,0,-55)
     {
-      const elevMat = new THREE.MeshStandardMaterial({ color: 0x1a1414, roughness: 0.88, metalness: 0.15 });
-      const elevPlatform = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.28, 2.6), elevMat);
-      elevatorMesh = elevPlatform;
-      elevatorMesh.position.set(-18, ELEV_START, -55);
-      scene.add(elevatorMesh);
-
-      // Fixed shaft guide pillars (span from below ground to above target)
-      const shaftMat = new THREE.MeshStandardMaterial({ color: 0x181010, roughness: 0.95, metalness: 0.15 });
-      const shaftHeight = ELEV_TARGET - ELEV_START + 2;
-      const shaftMidY   = ELEV_START + shaftHeight / 2;
-      [[-1.15, -1.15], [1.15, -1.15], [-1.15, 1.15], [1.15, 1.15]].forEach(([ox, oz]) => {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, shaftHeight, 0.14), shaftMat);
-        post.position.set(-18 + ox, shaftMidY, -55 + oz);
-        scene.add(post);
-      });
+      const tileMat = new THREE.MeshStandardMaterial({ color: 0xc8a85a, roughness: 0.95, metalness: 0.0 });
+      const cols = 4, rows = 4, tW = 1.5, tD = 1.5;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const tile = new THREE.Mesh(new THREE.BoxGeometry(tW - 0.06, 0.12, tD - 0.06), tileMat.clone());
+          tile.position.set(
+            -18 - (cols / 2 - 0.5) * tW + c * tW,
+            0.005,
+            -55 - (rows / 2 - 0.5) * tD + r * tD
+          );
+          tile.userData.vel    = new THREE.Vector3(0, 0, 0);
+          tile.userData.rotVel = new THREE.Vector3(0, 0, 0);
+          tile.userData.falling = false;
+          scene.add(tile);
+          surfaceFloorTiles.push(tile);
+        }
+      }
     }
     let   altarBreaking  = false;
     let   altarPieces    = [];   // world-space pieces with physics
@@ -1261,6 +1348,7 @@
       altarG.position.copy(offerAltarPos);
       scene.add(altarG);
       altarGroup = altarG;   // save ref for breaking
+
     }
 
     // ════════════════════════════════════════════════
@@ -1624,7 +1712,9 @@
       // ── Interact (E) ──────────────────────────────
       btnE.addEventListener('touchstart', e => {
         e.preventDefault();
-        if (!isPlaying() || isDead || !gemCollected || gemOffered) return;
+        if (!isPlaying() || isDead) return;
+        // ── Gem offering ───────────────────────────
+        if (!gemCollected || gemOffered) return;
         const _rig = controls.getObject();
         const _edx = _rig.position.x - offerAltarPos.x;
         const _edz = _rig.position.z - offerAltarPos.z;
@@ -1671,6 +1761,7 @@
     torchGroup.position.set(VM_BASE_X, VM_BASE_Y, VM_BASE_Z);
     torchGroup.rotation.z =  0.28;  // tilt handle inward toward player
     torchGroup.rotation.x =  0.10;  // slight backward tilt — natural grip
+    torchGroup.visible    =  true;   // torch is the starting weapon
 
     // Handle — dark charred wood
     const torchHandleMat = new THREE.MeshStandardMaterial({
@@ -1732,7 +1823,32 @@
 
     vmScene.add(torchGroup);
 
-    // ── Viewmodel gem — appears in left hand after collection ─
+    // ── Iron Sword viewmodel (right hand, hidden until traded) ─
+    const swordVmGroup = new THREE.Group();
+    const _sBladeMat = new THREE.MeshStandardMaterial({ color: 0xd0d8e0, roughness: 0.15, metalness: 0.95 });
+    const _sGripMat  = new THREE.MeshStandardMaterial({ color: 0x5c2a0a, roughness: 0.9 });
+    const _sGuardMat = new THREE.MeshStandardMaterial({ color: 0x997733, roughness: 0.35, metalness: 0.85 });
+    const _sBlade = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.44, 0.009), _sBladeMat);
+    _sBlade.position.y = 0.22;
+    swordVmGroup.add(_sBlade);
+    const _sBevel = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.44, 0.007), _sBladeMat);
+    _sBevel.position.set(0.018, 0.22, 0);
+    swordVmGroup.add(_sBevel);
+    const _sGuard = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.025, 0.025), _sGuardMat);
+    swordVmGroup.add(_sGuard);
+    const _sGrip  = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.19, 8), _sGripMat);
+    _sGrip.position.y = -0.095;
+    swordVmGroup.add(_sGrip);
+    const _sPommel = new THREE.Mesh(new THREE.SphereGeometry(0.030, 7, 5), _sGuardMat);
+    _sPommel.position.y = -0.205;
+    swordVmGroup.add(_sPommel);
+    swordVmGroup.position.set(VM_BASE_X, VM_BASE_Y, VM_BASE_Z);
+    swordVmGroup.rotation.set(0.10, 0, 0.28);
+    swordVmGroup.visible = false;
+    vmScene.add(swordVmGroup);
+
+    // Active weapon pointer — reassigned in pickUpSword()
+    let vmWeaponGroup = torchGroup;
     const vmGemGroup = new THREE.Group();
     const vmGemMesh  = new THREE.Mesh(
       new THREE.OctahedronGeometry(0.065, 0),
@@ -1814,6 +1930,7 @@
           e.preventDefault();
           break;
         case 'KeyE':
+          // ── Gem offering ──────────────────────────
           if (isPlaying() && gemCollected && !gemOffered) {
             const _rig = controls.getObject();
             const _edx = _rig.position.x - offerAltarPos.x;
@@ -1855,9 +1972,12 @@
     let attackHit      = false;   // prevent double-hit per swing
     let attackCooldown = 0;
     let attackComboStep = 0;      // 0=left swing, 1=right swing, 2=jab
+    let isDownSlam     = false;   // aerial downslam attack
     const ATTACK_DUR      = 0.30; // duration of each individual hit (seconds)
+    const DOWNSLAM_DUR    = 0.45; // downslam takes a bit longer
     const ATTACK_COOLDOWN = 0.10; // brief pause before next hit is allowed
     const ATTACK_RANGE    = 2.5;  // melee reach in world units
+    const slamFlashEl     = document.getElementById('slam-flash');
 
     document.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;                          // left-click only
@@ -1867,6 +1987,7 @@
       attackTimer    = 0;
       attackHit      = false;
       attackCooldown = ATTACK_COOLDOWN;
+      isDownSlam     = !isOnGround;                        // airborne → downslam
     });
 
     const SPEED          = 0.5;   // player base movement speed
@@ -1933,12 +2054,32 @@
       new THREE.Vector3(5.8, 22, -111)
     );
 
+    // ── City cavern outer walls (CX=0, CZ=450, cavern 130×130) ──
+    const cityWallN = new THREE.Box3(new THREE.Vector3(-65,-1,514.75), new THREE.Vector3( 65,22,515.25));
+    const cityWallS = new THREE.Box3(new THREE.Vector3(-65,-1,384.75), new THREE.Vector3( 65,22,385.25));
+    const cityWallE = new THREE.Box3(new THREE.Vector3( 64.75,-1,385), new THREE.Vector3( 65.25,22,515));
+    const cityWallW = new THREE.Box3(new THREE.Vector3(-65.25,-1,385), new THREE.Vector3(-64.75,22,515));
+
+    // ── City buildings — [ox, bz, bw, bd] matching render data ──
+    const cityBuildingBoxes = [
+      [-26,475,12,10], [-29,458,10, 9], [-24,440,13,12],
+      [-31,423,14,11], [-18,466, 8, 8], [ 27,472,11,10],
+      [ 30,455, 9,11], [ 26,438,13,10], [ 29,422,12,13],
+      [ 20,462, 7, 8], [ -7,428, 8, 6], [  7,428, 8, 6],
+      [  0,420,18, 5],
+    ].map(([ox,bz,bw,bd]) => new THREE.Box3(
+      new THREE.Vector3(ox - bw/2, -1, bz - bd/2),
+      new THREE.Vector3(ox + bw/2, 22, bz + bd/2)
+    ));
+
     // Collect all colliders
     const colliders = [
       planeBBox,
       caveWallLeft, caveWallLeftInner,
       caveWallRight, caveWallRightInner,
       caveBackWall, caveBackWallInner,
+      cityWallN, cityWallS, cityWallE, cityWallW,
+      ...cityBuildingBoxes,
     ];
 
     /**
@@ -2079,6 +2220,15 @@
             : 'linear-gradient(90deg,#cc0000,#ff5555)';
         }
 
+        // ── Player freeze (shrine explosion stun) ──────
+        const rig = controls.getObject();
+        if (playerFrozen) {
+          playerFreezeTimer -= delta;
+          if (playerFreezeTimer <= 0) playerFrozen = false;
+          velocity.set(0, 0, 0);
+          // still apply gravity so they stand on the ground
+        } else {
+
         // Apply damping to bleed off velocity smoothly
         velocity.x -= velocity.x * DAMPING * delta;
         velocity.z -= velocity.z * DAMPING * delta;
@@ -2111,10 +2261,8 @@
         if (keys.left     || keys.right)    velocity.x -= direction.x * SPEED * (isSprinting ? SPRINT_MULT : 1) * delta;
 
         // ── Collision-aware position update (slide along walls) ─
-        const rig = controls.getObject(); // camera parent
         const oldX = rig.position.x;
         const oldZ = rig.position.z;
-
         const newX = oldX + velocity.x;
         const newZ = oldZ + velocity.z;
 
@@ -2133,12 +2281,15 @@
         }
         // else: genuinely blocked on both axes
 
+        } // end !playerFrozen movement block
+
         // ── Vertical: gravity + jump ────────────────────
         verticalVelocity += GRAVITY * delta;
         rig.position.y   += verticalVelocity * delta;
 
-        if (rig.position.y <= EYE_HEIGHT) {
-          rig.position.y   = EYE_HEIGHT;
+        const _effectiveFloorY = EYE_HEIGHT;
+        if (rig.position.y <= _effectiveFloorY) {
+          rig.position.y   = _effectiveFloorY;
           verticalVelocity = 0;
           isOnGround       = true;
         } else {
@@ -2169,51 +2320,112 @@
       attackCooldown = Math.max(0, attackCooldown - delta);
       if (isAttacking) {
         attackTimer += delta;
-        const p  = Math.min(attackTimer / ATTACK_DUR, 1.0);
-        const sw = Math.sin(p * Math.PI);   // 0 → peak → 0
+        const dur = isDownSlam ? DOWNSLAM_DUR : ATTACK_DUR;
+        const p   = Math.min(attackTimer / dur, 1.0);
+        const sw  = Math.sin(p * Math.PI);   // 0 → peak → 0
 
-        if (attackComboStep === 0) {
+        if (isDownSlam) {
+          // ── Downslam — wind-up overhead then crash down ──
+          if (p < 0.38) {
+            // Wind-up: raise weapon back and overhead
+            const wu = p / 0.38;  // 0 → 1
+            vmWeaponGroup.position.x = VM_BASE_X - wu * 0.08;
+            vmWeaponGroup.position.y = VM_BASE_Y + wu * 0.60;
+            vmWeaponGroup.position.z = VM_BASE_Z + wu * 0.10;
+            vmWeaponGroup.rotation.x =  0.10 - wu * 2.8;  // tip up/back
+            vmWeaponGroup.rotation.y =  0;
+            vmWeaponGroup.rotation.z =  0.28 - wu * 0.12;
+          } else {
+            // Slam: crash forward and down hard
+            const sd = (p - 0.38) / 0.62;  // 0 → 1
+            const ease = 1 - Math.pow(1 - sd, 3); // ease-in-cubic (fast at end)
+            vmWeaponGroup.position.x = VM_BASE_X - (1 - ease) * 0.08;
+            vmWeaponGroup.position.y = VM_BASE_Y + (1 - ease) * 0.60 - ease * 0.28;
+            vmWeaponGroup.position.z = VM_BASE_Z + (1 - ease) * 0.10 - ease * 0.22;
+            vmWeaponGroup.rotation.x =  0.10 - (1 - ease) * 2.8 + ease * 2.4;
+            vmWeaponGroup.rotation.y =  0;
+            vmWeaponGroup.rotation.z =  0.28 - (1 - ease) * 0.12;
+            // Impact at 70% through the slam
+            if (ease >= 0.70 && !attackHit) {
+              attackHit = true;
+              // Knock snakes away
+              const _pr = controls.getObject().position;
+              snakes.forEach(snake => {
+                const _dx = snake.position.x - _pr.x;
+                const _dz = snake.position.z - _pr.z;
+                const _d  = Math.sqrt(_dx * _dx + _dz * _dz);
+                if (_d < 5.5 && _d > 0.01) {
+                  const _force = (5.5 - _d) / 5.5 * 8;
+                  snake.position.x += (_dx / _d) * _force;
+                  snake.position.z += (_dz / _d) * _force;
+                }
+              });
+              // Scatter scorpions too
+              scorpions.forEach(sc => {
+                const _dx = sc.position.x - _pr.x;
+                const _dz = sc.position.z - _pr.z;
+                const _d  = Math.sqrt(_dx * _dx + _dz * _dz);
+                if (_d < 5.5 && _d > 0.01) {
+                  const _force = (5.5 - _d) / 5.5 * 10;
+                  sc.position.x += (_dx / _d) * _force;
+                  sc.position.z += (_dz / _d) * _force;
+                }
+              });
+            }
+          }
+          // Finish downslam
+          if (p >= 1.0) {
+            isAttacking              = false;
+            isDownSlam               = false;
+            vmWeaponGroup.position.x = VM_BASE_X;
+            vmWeaponGroup.position.y = VM_BASE_Y;
+            vmWeaponGroup.position.z = VM_BASE_Z;
+            vmWeaponGroup.rotation.x = 0.10;
+            vmWeaponGroup.rotation.y = 0;
+            vmWeaponGroup.rotation.z = 0.28;
+          }
+        } else if (attackComboStep === 0) {
           // — Left swing —
-          torchGroup.position.x = VM_BASE_X - sw * 0.42;
-          torchGroup.position.y = VM_BASE_Y + sw * 0.06;
-          torchGroup.position.z = VM_BASE_Z;
-          torchGroup.rotation.x =  0.10 - sw * 1.0;
-          torchGroup.rotation.y =  sw * 1.4;
-          torchGroup.rotation.z =  0.28 + sw * 0.10;
+          vmWeaponGroup.position.x = VM_BASE_X - sw * 0.42;
+          vmWeaponGroup.position.y = VM_BASE_Y + sw * 0.06;
+          vmWeaponGroup.position.z = VM_BASE_Z;
+          vmWeaponGroup.rotation.x =  0.10 - sw * 1.0;
+          vmWeaponGroup.rotation.y =  sw * 1.4;
+          vmWeaponGroup.rotation.z =  0.28 + sw * 0.10;
         } else if (attackComboStep === 1) {
           // — Right swing —
-          torchGroup.position.x = VM_BASE_X + sw * 0.42;
-          torchGroup.position.y = VM_BASE_Y + sw * 0.06;
-          torchGroup.position.z = VM_BASE_Z;
-          torchGroup.rotation.x =  0.10 - sw * 1.0;
-          torchGroup.rotation.y = -sw * 1.4;
-          torchGroup.rotation.z =  0.28 - sw * 0.10;
+          vmWeaponGroup.position.x = VM_BASE_X + sw * 0.42;
+          vmWeaponGroup.position.y = VM_BASE_Y + sw * 0.06;
+          vmWeaponGroup.position.z = VM_BASE_Z;
+          vmWeaponGroup.rotation.x =  0.10 - sw * 1.0;
+          vmWeaponGroup.rotation.y = -sw * 1.4;
+          vmWeaponGroup.rotation.z =  0.28 - sw * 0.10;
         } else {
           // — Jab —
-          torchGroup.position.x = VM_BASE_X;
-          torchGroup.position.y = VM_BASE_Y + sw * 0.04;
-          torchGroup.position.z = VM_BASE_Z - sw * 0.30;
-          torchGroup.rotation.x =  0.10 - sw * 1.3;
-          torchGroup.rotation.y =  0;
-          torchGroup.rotation.z =  0.28;
+          vmWeaponGroup.position.x = VM_BASE_X;
+          vmWeaponGroup.position.y = VM_BASE_Y + sw * 0.04;
+          vmWeaponGroup.position.z = VM_BASE_Z - sw * 0.30;
+          vmWeaponGroup.rotation.x =  0.10 - sw * 1.3;
+          vmWeaponGroup.rotation.y =  0;
+          vmWeaponGroup.rotation.z =  0.28;
         }
 
         // Advance combo step and restore pose when hit finishes
-        if (p >= 1.0) {
-          isAttacking           = false;
-          attackComboStep       = (attackComboStep + 1) % 3;
-          torchGroup.position.z = VM_BASE_Z;
-          torchGroup.rotation.x = 0.10;
-          torchGroup.rotation.y = 0;
-          torchGroup.rotation.z = 0.28;
+        if (!isDownSlam && p >= 1.0) {
+          isAttacking              = false;
+          attackComboStep          = (attackComboStep + 1) % 3;
+          vmWeaponGroup.position.z = VM_BASE_Z;
+          vmWeaponGroup.rotation.x = 0.10;
+          vmWeaponGroup.rotation.y = 0;
+          vmWeaponGroup.rotation.z = 0.28;
         }
       } else {
         // Walking sway / idle breathing bob
-        torchGroup.position.x = VM_BASE_X
+        vmWeaponGroup.position.x = VM_BASE_X
           + (isMoving ? Math.sin(t *  9.0) * 0.014 : 0);
-        torchGroup.position.y = VM_BASE_Y
+        vmWeaponGroup.position.y = VM_BASE_Y
           + (isMoving ? Math.sin(t * 14.0) * 0.010 : Math.sin(t * 1.3) * 0.004);
-        torchGroup.position.z = VM_BASE_Z;
+        vmWeaponGroup.position.z = VM_BASE_Z;
       }
 
       // ── Animate viewmodel legs ───────────────────────────
@@ -2250,6 +2462,8 @@
       } else if (!gemCollected || gemOffered) {
         altarHintEl.style.display = 'none';
       }
+
+      goblinHintEl.style.display = 'none';
       if (gemOffered) {
         offeredGemMesh.rotation.y += delta * 1.4;
         offeredGemMesh.position.y  = (altarBreaking ? offeredGemMesh.position.y : 1.50 + offerAltarPos.y)
@@ -2284,15 +2498,13 @@
       if (altarBreaking)  altarPieces.forEach(_applyDebris);
       if (shrineBreaking) shrinePieces.forEach(_applyDebris);
 
-      // ── Shrine debris fade + hole reveal ────────────────────
+      // ── Shrine debris fade ───────────────────────────────────
       if (shrineBreaking && !shrineFading && shrinePieces.length > 0
           && shrinePieces.every(p => p.userData.settled)) {
-        if (shrineSettleTimer < 0) shrineSettleTimer = 1.8;  // 1.8s pause then fade
+        if (shrineSettleTimer < 0) shrineSettleTimer = 1.8;
         shrineSettleTimer -= delta;
         if (shrineSettleTimer <= 0) {
           shrineFading = true;
-          if (shrineHoleMesh) shrineHoleMesh.visible = true;
-          elevatorRising = true;
         }
       }
       if (shrineFading) {
@@ -2302,88 +2514,110 @@
           if (p.material.opacity <= 0) p.visible = false;
         });
       }
-      // ── Elevator rise + player carry ───────────────────────────
-      if (elevatorMesh) {
-        if (elevatorRising) {
-          elevatorMesh.position.y += ELEV_SPEED * delta;
-          if (elevatorMesh.position.y >= ELEV_TARGET) {
-            elevatorMesh.position.y = ELEV_TARGET;
-            elevatorRising = false;
-          }
-        }
-        // Support / carry player if standing on platform
-        const _rig2 = controls.getObject();
-        const _platTop = elevatorMesh.position.y + 0.14;
-        const _onX = Math.abs(_rig2.position.x - (-18)) < 1.25;
-        const _onZ = Math.abs(_rig2.position.z - (-55)) < 1.25;
-        if (_onX && _onZ) {
-          const _feet = _rig2.position.y - EYE_HEIGHT;
-          if (_feet <= _platTop + 0.12 && _feet >= _platTop - 0.8) {
-            _rig2.position.y = _platTop + EYE_HEIGHT;
-            if (verticalVelocity < 0) verticalVelocity = 0;
-            isOnGround = true;
-            // Trigger descent when player steps on the stopped lift
-            if (!elevatorRising && !elevatorDescending
-                && elevatorMesh.position.y >= ELEV_TARGET - 0.05) {
-              elevatorDescending = true;
-              blackoutEl.style.display = 'block';
-              setTimeout(() => { blackoutEl.style.opacity = '1'; }, 30);
-              // Teleport to city after black
-              setTimeout(() => {
-                const _cr = controls.getObject();
-                _cr.position.set(0, EYE_HEIGHT, 495);
-                _cr.rotation.set(0, Math.PI, 0);   // face into city
-                velocity.set(0, 0, 0);
-                verticalVelocity = 0;
-                isOnGround = true;
-                // Fade back in
-                blackoutEl.style.transition = 'opacity 2s ease-out';
-                blackoutEl.style.opacity = '0';
-                setTimeout(() => { blackoutEl.style.display = 'none'; }, 2100);
-              }, 4000);
-            }
-          }
-        }
-        // Descend
-        if (elevatorDescending) {
-          elevatorMesh.position.y -= ELEV_SPEED * 1.2 * delta;
-          if (elevatorMesh.position.y <= ELEV_START) {
-            elevatorMesh.position.y = ELEV_START;
-          }
-        }
+
+      // ── Floor collapse animation ──────────────────────────────
+      if (floorCollapsing) {
+        let allGone = true;
+        surfaceFloorTiles.forEach(tile => {
+          if (!tile.visible) return;
+          allGone = false;
+          tile.userData.vel.y    -= 9.8 * delta;
+          tile.position.x        += tile.userData.vel.x * delta;
+          tile.position.y        += tile.userData.vel.y * delta;
+          tile.position.z        += tile.userData.vel.z * delta;
+          tile.rotation.x        += tile.userData.rotVel.x * delta;
+          tile.rotation.z        += tile.userData.rotVel.z * delta;
+          if (tile.position.y < -8) tile.visible = false;
+        });
+        if (allGone) floorCollapsing = false;
       }
 
-      // ── City exit platform ─────────────────────────────────────
-      if (cityExitMesh) {
-        // Pulse the glow
-        cityExitLight.intensity = 2.0 + Math.sin(t * 3.0) * 0.8;
-        cityExitMesh.rotation.y += delta * 0.4;
-        // Detect player stepping on it
-        if (!cityExitTriggered) {
-          const _er = controls.getObject();
-          const _edx = Math.abs(_er.position.x - 0);
-          const _edz = Math.abs(_er.position.z - 413);
-          if (_edx < 1.8 && _edz < 1.8 && _er.position.y - EYE_HEIGHT < 0.25) {
-            cityExitTriggered = true;
-            blackoutEl.style.transition = 'opacity 1.5s ease-in';
-            blackoutEl.style.display = 'block';
-            setTimeout(() => { blackoutEl.style.opacity = '1'; }, 30);
-            setTimeout(() => {
-              const _cr = controls.getObject();
-              _cr.position.set(0, EYE_HEIGHT, 0);
-              _cr.rotation.set(0, 0, 0);
-              velocity.set(0, 0, 0);
-              verticalVelocity = 0;
-              isOnGround = true;
-              blackoutEl.style.transition = 'opacity 2s ease-out';
-              blackoutEl.style.opacity = '0';
-              setTimeout(() => {
-                blackoutEl.style.display = 'none';
-                cityExitTriggered = false;  // allow re-entry
-              }, 2100);
-            }, 3000);
+      // ── City goblin AI & animation ─────────────────────────────
+      {
+        const _px = controls.getObject().position.x;
+        const _pz = controls.getObject().position.z;
+        cityGoblins.forEach(g => {
+          const { parts, phase, homeRotY } = g.userData;
+          const _dx = g.position.x - _px;
+          const _dz = g.position.z - _pz;
+          const _dist = Math.sqrt(_dx * _dx + _dz * _dz);
+
+          // Determine state with hysteresis so goblins don't flicker
+          if (_dist < 3.2) {
+            g.userData.state = 'flee';
+          } else if (_dist < 8.5) {
+            if (g.userData.state === 'flee' && _dist > 5.0) g.userData.state = 'aware';
+            else if (g.userData.state !== 'flee') g.userData.state = 'aware';
+          } else {
+            if (g.userData.state !== 'flee') g.userData.state = 'idle';
+            else if (_dist > 10) g.userData.state = 'idle';
           }
-        }
+
+          const state = g.userData.state;
+
+          // ── Rotation — smooth lerp toward target angle ──────
+          let _targetY;
+          if (state === 'idle') {
+            _targetY = homeRotY;
+          } else if (state === 'aware') {
+            // Face the player (head-on)
+            _targetY = Math.atan2(-_dx, -_dz);
+          } else {
+            // Flee: face away from player
+            _targetY = Math.atan2(_dx, _dz);
+          }
+          // Normalise delta angle to [-π, π]
+          let _da = _targetY - g.rotation.y;
+          _da -= Math.round(_da / (Math.PI * 2)) * Math.PI * 2;
+          g.rotation.y += _da * Math.min(1, delta * (state === 'flee' ? 9 : 4));
+
+          // ── Movement — flee only ────────────────────────────
+          if (state === 'flee' && _dist > 0.1) {
+            const _spd = 3.0 * delta;
+            g.position.x += (_dx / _dist) * _spd;
+            g.position.z += (_dz / _dist) * _spd;
+          }
+
+          // ── Limb animation ──────────────────────────────────
+          if (state === 'flee') {
+            // Running: pumping legs + opposite arm swing
+            const _freq = 14, _amp = 0.62;
+            const _lSwing = Math.sin(t * _freq + phase) * _amp;
+            parts.leftLeg.rotation.x  +=  (_lSwing - parts.leftLeg.rotation.x)  * Math.min(1, delta * 30);
+            parts.rightLeg.rotation.x += (-_lSwing - parts.rightLeg.rotation.x) * Math.min(1, delta * 30);
+            parts.leftArm.rotation.x  += (-_lSwing * 0.55 - parts.leftArm.rotation.x)  * Math.min(1, delta * 30);
+            parts.rightArm.rotation.x +=  (_lSwing * 0.55 - parts.rightArm.rotation.x) * Math.min(1, delta * 30);
+            // Body leans forward while running
+            parts.body.rotation.x      += (0.30 - parts.body.rotation.x)      * Math.min(1, delta * 8);
+            parts.shoulders.rotation.x += (0.30 - parts.shoulders.rotation.x) * Math.min(1, delta * 8);
+            parts.head.rotation.x      += (-0.22 - parts.head.rotation.x)     * Math.min(1, delta * 8);
+          } else if (state === 'aware') {
+            // Nervous idle: faster breathing, slight weight shift
+            const _breathAmp = 0.015;
+            const _breathFreq = 3.2;
+            parts.body.position.y      = 0.68 + Math.sin(t * _breathFreq + phase) * _breathAmp;
+            parts.shoulders.position.y = 0.91 + Math.sin(t * _breathFreq + phase) * _breathAmp;
+            parts.head.rotation.x      += (0 - parts.head.rotation.x) * Math.min(1, delta * 6);
+            // Subtle arm/leg reset to idle pose
+            parts.leftLeg.rotation.x  += (0 - parts.leftLeg.rotation.x)  * Math.min(1, delta * 6);
+            parts.rightLeg.rotation.x += (0 - parts.rightLeg.rotation.x) * Math.min(1, delta * 6);
+            parts.leftArm.rotation.x  += (0 - parts.leftArm.rotation.x)  * Math.min(1, delta * 6);
+            parts.rightArm.rotation.x += (0 - parts.rightArm.rotation.x) * Math.min(1, delta * 6);
+            parts.body.rotation.x      += (0 - parts.body.rotation.x)      * Math.min(1, delta * 6);
+            parts.shoulders.rotation.x += (0 - parts.shoulders.rotation.x) * Math.min(1, delta * 6);
+          } else {
+            // Idle: gentle breathing only
+            parts.body.position.y      = 0.68 + Math.sin(t * 1.5 + phase) * 0.008;
+            parts.shoulders.position.y = 0.91 + Math.sin(t * 1.5 + phase) * 0.008;
+            parts.head.rotation.x      += (0 - parts.head.rotation.x) * Math.min(1, delta * 4);
+            parts.leftLeg.rotation.x   += (0 - parts.leftLeg.rotation.x)  * Math.min(1, delta * 4);
+            parts.rightLeg.rotation.x  += (0 - parts.rightLeg.rotation.x) * Math.min(1, delta * 4);
+            parts.leftArm.rotation.x   += (0 - parts.leftArm.rotation.x)  * Math.min(1, delta * 4);
+            parts.rightArm.rotation.x  += (0 - parts.rightArm.rotation.x) * Math.min(1, delta * 4);
+            parts.body.rotation.x       += (0 - parts.body.rotation.x)      * Math.min(1, delta * 4);
+            parts.shoulders.rotation.x  += (0 - parts.shoulders.rotation.x) * Math.min(1, delta * 4);
+          }
+        });
       }
 
       // ── Dual render pass ──────────────────────────────────
@@ -2418,6 +2652,8 @@
     const gemPickupEl    = document.getElementById('gemPickup');
     const altarHintEl    = document.getElementById('altarHint');
     const altarOfferedEl = document.getElementById('altarOffered');
+    const goblinDialogEl = document.getElementById('goblinDialog');
+    const goblinHintEl   = document.getElementById('goblinHint');
 
     // ── Step 6: mobile UI polish ─────────────────────
     if (isTouch) {
@@ -2436,6 +2672,9 @@
         #overlay .controls-hint { display: none; }
         /* Move altar hint above the action buttons */
         #altarHint { bottom: 220px; font-size: 1.05rem; }
+        /* Move goblin hint and dialog above buttons too */
+        #goblinHint   { bottom: 280px; }
+        #goblinDialog { bottom: 300px; }
         /* Move stamina bar above buttons area */
         #staminaWrap { bottom: 210px; }
       `;
@@ -2453,10 +2692,29 @@
     let isSprinting    = false;   // hoisted so leg animation can read it
     let deathTimer     = 0;
     const RESPAWN_TIME = 5;
-    let elevatorDescending  = false;
-    let cityExitMesh;
-    let cityExitLight;
-    let cityExitTriggered = false;
+    let swordPickedUp  = false;   // player found the sword near the shrine
+
+    function pickUpSword() {
+      swordPickedUp = true;
+      goblinHintEl.style.display = 'none';
+      if (swordPickupMesh) { scene.remove(swordPickupMesh); swordPickupMesh = null; }
+      swordVmGroup.visible = true;
+      vmWeaponGroup        = swordVmGroup;
+      const _note = document.createElement('div');
+      Object.assign(_note.style, {
+        position: 'fixed', top: '28%', left: '50%',
+        transform: 'translateX(-50%)',
+        color: '#e8d464', fontFamily: 'monospace',
+        fontSize: '1.2rem', letterSpacing: '0.18em',
+        textTransform: 'uppercase', whiteSpace: 'nowrap',
+        textShadow: '0 0 22px #cc9900, 0 2px 8px #000',
+        zIndex: '6', pointerEvents: 'none',
+        animation: 'offerFade 3.5s forwards',
+      });
+      _note.textContent = '\u2694 Iron Sword!';
+      document.body.appendChild(_note);
+      setTimeout(() => _note.remove(), 3600);
+    }
 
     function triggerDeath() {
       if (isDead) return;
@@ -2529,16 +2787,31 @@
         health = 1;   // shrine explosion nearly kills the player
         window._shrineCandleLight = null;  // kill candle flicker
 
-        // ── Knockback — push player away from shrine (−18, 0, −55) ──
-        const _rig = controls.getObject();
-        const _kbDx = _rig.position.x - (-18);
-        const _kbDz = _rig.position.z - (-55);
-        const _kbDist = Math.sqrt(_kbDx * _kbDx + _kbDz * _kbDz) || 1;
-        const _kbStr  = 10.0;
-        velocity.x = (_kbDx / _kbDist) * _kbStr;
-        velocity.z = (_kbDz / _kbDist) * _kbStr;
-        verticalVelocity = 6.0;
-        isOnGround = false;
+        // ── Freeze player for 2.5 s during explosion ────
+        playerFrozen      = true;
+        playerFreezeTimer = 2.5;
+        velocity.set(0, 0, 0);
+        verticalVelocity  = 0;
+
+        // ── Kick off floor collapse — stagger each tile ──
+        floorCollapsing = true;
+        surfaceFloorTiles.forEach((tile, i) => {
+          setTimeout(() => {
+            if (!tile.visible) return;
+            const angle = Math.random() * Math.PI * 2;
+            tile.userData.vel.set(
+              Math.cos(angle) * (0.3 + Math.random() * 0.5),
+              -(0.5 + Math.random() * 1.5),
+              Math.sin(angle) * (0.3 + Math.random() * 0.5)
+            );
+            tile.userData.rotVel.set(
+              (Math.random() - 0.5) * 6,
+              0,
+              (Math.random() - 0.5) * 6
+            );
+            tile.userData.falling = true;
+          }, i * 90 + Math.random() * 80);
+        });
 
         // ── Red vignette — flash instantly, fade over 10 s ──
         const _vig = document.getElementById('shrineVignette');
@@ -2583,22 +2856,13 @@
           shrinePieces.push(child);
         });
         scene.remove(shrineGroup);
-
-        // Dark pit revealed as debris fades
-        const _holeMat = new THREE.MeshStandardMaterial({
-          color: 0x080404, roughness: 1.0, metalness: 0.0,
-          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
-        });
-        shrineHoleMesh = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 0.01, 40), _holeMat);
-        shrineHoleMesh.position.set(-18, 0.02, -55);
-        shrineHoleMesh.visible = false;
-        scene.add(shrineHoleMesh);
       }, 400);
     }
 
     // ════════════════════════════════════════════════
     // UNDERGROUND CITY
     // ════════════════════════════════════════════════
+    let cityGoblins = [];
     {
       const CX = 0, CZ = 450;   // city centre (far from desert area)
       const concMat  = new THREE.MeshStandardMaterial({ color: 0x28282c, roughness: 0.92, metalness: 0.08 });
@@ -2680,26 +2944,6 @@
           scene.add(pl);
         });
 
-      // Exit platform — glowing teal disc at far end of street
-      const exitPlatMat = new THREE.MeshStandardMaterial({
-        color: 0x003322, emissive: 0x00ffaa, emissiveIntensity: 1.2,
-        roughness: 0.4, metalness: 0.3
-      });
-      cityExitMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.12, 24), exitPlatMat);
-      cityExitMesh.position.set(CX, 0.06, 413);
-      scene.add(cityExitMesh);
-      cityExitLight = new THREE.PointLight(0x00ffaa, 2.5, 10);
-      cityExitLight.position.set(CX, 1.8, 413);
-      scene.add(cityExitLight);
-      // Arrow signs pointing toward exit
-      const arrowMat = new THREE.MeshStandardMaterial({ color: 0x00ffaa, emissive: 0x00cc88, emissiveIntensity: 1.0 });
-      [-6, 6].forEach(ax => {
-        const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 4), arrowMat);
-        arrow.rotation.z = ax < 0 ? Math.PI / 2 : -Math.PI / 2;
-        arrow.position.set(CX + ax * 0.5, 1.2, 413);
-        scene.add(arrow);
-      });
-
       // Eerie ambient fill lights
       const ambL1 = new THREE.PointLight(0x1a2266, 1.0, 90);
       ambL1.position.set(CX, 14, CZ);
@@ -2724,48 +2968,61 @@
 
       function makeGoblin(x, z, rotY) {
         const g = new THREE.Group();
+        const parts = {};  // refs to animatable sub-groups
 
-        // — Legs & boots —
-        [-0.13, 0.13].forEach(lx => {
+        // — Legs & boots — (inside Groups so hip is the rotation pivot)
+        ['left', 'right'].forEach((side, i) => {
+          const lx = i === 0 ? -0.13 : 0.13;
+          const lg = new THREE.Group();
+          lg.position.set(lx, 0.44, 0);        // hip-level pivot
           const leg = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.44, 0.17), skinMat);
-          leg.position.set(lx, 0.22, 0);
-          g.add(leg);
+          leg.position.y = -0.22;
+          lg.add(leg);
           const boot = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.10, 0.23), darkMat);
-          boot.position.set(lx, 0.05, 0.03);
-          g.add(boot);
+          boot.position.set(0, -0.39, 0.03);
+          lg.add(boot);
+          g.add(lg);
+          parts[side + 'Leg'] = lg;
         });
 
         // — Torso —
         const body = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.52, 0.30), skinMat);
         body.position.y = 0.68;
         g.add(body);
+        parts.body = body;
 
-        // — Shoulders —
         const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.60, 0.13, 0.28), skinMat);
         shoulders.position.y = 0.91;
         g.add(shoulders);
+        parts.shoulders = shoulders;
 
-        // — Left arm (hanging down, slightly out) —
+        // — Left arm — (shoulder pivot for swing animation)
+        const armLG = new THREE.Group();
+        armLG.position.set(-0.32, 0.88, 0);
+        armLG.rotation.z = 0.22;
         const armL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.40, 0.14), skinMat);
-        armL.position.set(-0.32, 0.66, 0);
-        armL.rotation.z = 0.22;
-        g.add(armL);
+        armL.position.y = -0.20;
+        armLG.add(armL);
+        g.add(armLG);
+        parts.leftArm = armLG;
 
-        // — Right arm (raised to hold club) —
+        // — Right arm + club — (shoulder pivot; club rides along during run)
+        const armRG = new THREE.Group();
+        armRG.position.set(0.32, 0.88, 0);
+        armRG.rotation.z = -1.15;
         const armR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.40, 0.14), skinMat);
-        armR.position.set(0.32, 0.76, 0);
-        armR.rotation.z = -1.15;
-        g.add(armR);
-
-        // — Club (right hand) —
+        armR.position.y = -0.10;
+        armRG.add(armR);
+        // Club: local position/rotation so it lands at the original world coords
         const clubG = new THREE.Group();
+        clubG.position.set(0.05, -0.25, 0);
+        clubG.rotation.z = 0.63;   // world rot = parent(-1.15) + local(0.63) ≈ -0.52
         const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.050, 0.54, 7), woodMat);
         handle.position.y = 0.27;
         clubG.add(handle);
         const clubHead = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15, 0), clubMat);
         clubHead.position.y = 0.58;
         clubG.add(clubHead);
-        // Radial spikes on club head
         const nubGeo = new THREE.ConeGeometry(0.024, 0.075, 4);
         [
           [ 0.14, 0.58,    0,           0, 0, -Math.PI / 2],
@@ -2778,90 +3035,82 @@
           nub.rotation.set(rx, ry, rz);
           clubG.add(nub);
         });
-        clubG.position.set(0.57, 0.82, 0);
-        clubG.rotation.z = -0.52;
-        g.add(clubG);
+        armRG.add(clubG);
+        g.add(armRG);
+        parts.rightArm = armRG;
 
-        // — Head —
+        // — Head group — (pivot at neck so head can tilt/look)
+        const headG = new THREE.Group();
+        headG.position.y = 1.17;
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6), skinMat);
         head.scale.y = 1.08;
-        head.position.y = 1.17;
-        g.add(head);
-
-        // — Heavy brow ridge —
+        headG.add(head);
         const browRidge = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.062, 0.09), browMat);
-        browRidge.position.set(0, 1.285, 0.20);
+        browRidge.position.set(0, 0.115, 0.20);
         browRidge.rotation.x = -0.28;
-        g.add(browRidge);
-
-        // — Angry angled eyebrows (\ /) —
+        headG.add(browRidge);
         [-0.10, 0.10].forEach((ex, i) => {
           const brow = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.028, 0.044), darkMat);
-          brow.position.set(ex, 1.305, 0.215);
+          brow.position.set(ex, 0.135, 0.215);
           brow.rotation.z = i === 0 ? 0.52 : -0.52;
-          g.add(brow);
+          headG.add(brow);
         });
-
-        // — Eyes (glowing yellow) —
         [-0.095, 0.095].forEach(ex => {
           const eye = new THREE.Mesh(new THREE.SphereGeometry(0.060, 6, 4), eyeMat);
-          eye.position.set(ex, 1.205, 0.215);
-          g.add(eye);
-          // Slit pupil
+          eye.position.set(ex, 0.035, 0.215);
+          headG.add(eye);
           const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.055, 0.018), pupilMat);
-          pupil.position.set(ex, 1.205, 0.268);
-          g.add(pupil);
+          pupil.position.set(ex, 0.035, 0.268);
+          headG.add(pupil);
         });
-
-        // — Warty goblin nose —
         const nose = new THREE.Mesh(new THREE.SphereGeometry(0.060, 5, 4), skinMat);
         nose.scale.set(1.1, 0.78, 1.3);
-        nose.position.set(0, 1.115, 0.255);
-        g.add(nose);
+        nose.position.set(0, -0.055, 0.255);
+        headG.add(nose);
         const wart = new THREE.Mesh(new THREE.SphereGeometry(0.020, 5, 4), skinMat);
-        wart.position.set(0.038, 1.148, 0.308);
-        g.add(wart);
-
-        // — Open snarl (dark mouth) —
+        wart.position.set(0.038, -0.022, 0.308);
+        headG.add(wart);
         const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.060, 0.068), darkMat);
-        mouth.position.set(0, 1.018, 0.225);
-        g.add(mouth);
-
-        // — Downward fangs from upper jaw —
+        mouth.position.set(0, -0.152, 0.225);
+        headG.add(mouth);
         [-0.062, 0.062].forEach(fx => {
           const fang = new THREE.Mesh(new THREE.ConeGeometry(0.020, 0.078, 4), toothMat);
-          fang.rotation.x = Math.PI;   // tip points downward
-          fang.position.set(fx, 1.068, 0.225);
-          g.add(fang);
+          fang.rotation.x = Math.PI;
+          fang.position.set(fx, -0.102, 0.225);
+          headG.add(fang);
         });
-
-        // — Pointed ears —
         [-1, 1].forEach(side => {
           const ear = new THREE.Mesh(new THREE.ConeGeometry(0.060, 0.17, 4), skinMat);
-          ear.position.set(side * 0.255, 1.275, 0);
+          ear.position.set(side * 0.255, 0.105, 0);
           ear.rotation.z = side * 0.82;
-          g.add(ear);
+          headG.add(ear);
         });
-
-        // Eerie eye glow (dim orange point light)
         const eyeGlow = new THREE.PointLight(0xffaa00, 0.45, 2.8);
-        eyeGlow.position.set(0, 1.21, 0.32);
-        g.add(eyeGlow);
+        eyeGlow.position.set(0, 0.04, 0.32);
+        headG.add(eyeGlow);
+        g.add(headG);
+        parts.head = headG;
 
         g.position.set(x, 0, z);
         g.rotation.y = rotY;
         g.scale.setScalar(0.78);
+        g.userData = {
+          phase:    Math.random() * Math.PI * 2,
+          parts,
+          homeRotY: rotY,
+          state:    'idle',   // 'idle' | 'aware' | 'flee'
+        };
         return g;
       }
 
       // Goblins huddled in a tight ring around the campfire (CF = 1, 460), radius 1.5
-      [
+      cityGoblins = [
         [ 2.50, 460.00, -1.57],
         [ 1.46, 461.43, -2.81],
         [-0.21, 460.88,  2.19],
         [-0.21, 459.12,  0.94],
         [ 1.46, 458.57, -0.31],
-      ].forEach(([x, z, ry]) => scene.add(makeGoblin(x, z, ry)));
+      ].map(([x, z, ry]) => { const g = makeGoblin(x, z, ry); scene.add(g); return g; });
 
       // — Campfire at the centre of the goblin ring —
       const CF_X = 1, CF_Z = 460;
